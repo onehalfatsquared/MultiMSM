@@ -43,8 +43,45 @@ class Monomer(metaclass=Singleton):
 
         return self.__index
 
+    def get_size(self):
+
+        return 1
 
 
+class State:
+
+    def __init__(self, size, properties = dict()):
+
+        self.__size = size
+        self.__properties = properties
+
+
+    def get_size(self):
+
+        return self.__size
+        
+    def get_properties(self):
+        
+        return self.__properties
+
+    #Note - careful with this hashing. have not verified that it works for dicts
+    def get_hash(self):
+        
+        return hash(self.__size) ^ hash(tuple(self.__properties.items()))
+        
+    def __hash__(self):
+        
+        return self.get_hash()
+        
+    def __eq__(self, state2):
+        
+        if self.__size != state2.get_size():
+            return False
+
+        if self.__properties != state2.get_properties():
+            return False
+            
+        return True
 
 
 
@@ -95,7 +132,7 @@ class MacrostateMap:
     def __set_save_loc(self):
         #check if the default directory exists and set reference to it
 
-        #check if the directories /data/ and /data/sampling/ exist
+        #check if the directories /data/ and /data/map/ exist
         if not os.path.isdir("data/"):
             os.makedirs("data/")
 

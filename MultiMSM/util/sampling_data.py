@@ -204,18 +204,3 @@ class ClusterSizeData:
 
         return len(self.__processed)
 
-
-
-
-
-
-
-
-
-
-
-
-
-if __name__ == "__main__":
-
-    a = 1

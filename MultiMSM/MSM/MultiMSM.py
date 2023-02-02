@@ -24,6 +24,7 @@ sys.path.insert(0, parent_dir)
 from ..util.discretization import Discretization
 from ..util.state import MacrostateMap
 from ..util.state import Monomer
+from ..util.state import State
 
 sys.path.pop(0)
 
@@ -66,6 +67,10 @@ class Collection:
         self.__msm_indices = None
 
         self.__counts_finalized = False
+
+        #init storage and a flag for mapping from state index to size
+        self.__index_to_size = np.zeros(self.__num_states, dtype=int)
+        self.__sizes_stored  = False
 
         return
 
@@ -117,12 +122,8 @@ class Collection:
                 for transition in transitions:
                     state1   = transition[0]
                     state2   = transition[1]
-                    self.add_transition(state1, state2, mon_frac)
-
-                    # if mon_frac > 0.4 and state1 == 2 and state2 == 1:
-                    #     print(start, mon_frac)
-                    #     print(traj.get_monomer_gain_data())
-                    #     print(traj.get_monomer_loss_data())
+                    #TODO - convert to state before this point?
+                    self.add_transition(State(state1), State(state2), mon_frac)
 
         return 
 
@@ -203,11 +204,12 @@ class Collection:
         if p0 is None:
             init_dist = np.zeros(self.__num_states, dtype=float)
             init_dist[self.__monomer_index] = 1.0
+            print("Warning: Initial distribution not specified. Defaulting to 100% monomer")
         else:
             init_dist = p0
 
         #solve FKE and return solution
-        print("Solving FKE with default initial distribution and T={} lags.".format(T)) 
+        print("Solving FKE with supplied initial distribution and T={} lags.".format(T)) 
         self.solve_FKE(init_dist, T)
         return self.__fke_soln
 
@@ -233,7 +235,7 @@ class Collection:
             else:
             	msm_key = key
             
-
+            #extract and add the counts
             num_counts = MMcounts[key]
             self.__add_count(monomer_index, monomer_index, msm_key, counts = num_counts)
 
@@ -268,8 +270,6 @@ class Collection:
         save the time series. This will be needed to solve the backward equations. 
         '''
 
-        #TODO - maybe have the indiviudal MSMs have this function implemented?
-
         #first check the distribution is an nparray with the correct dimensions
         if type(p0) is not np.ndarray:
             p0 = np.array(p0, dtype=float)
@@ -283,7 +283,8 @@ class Collection:
         p          = np.zeros((T+1, self.__num_states), dtype=float)
         indices    = np.zeros(T+1, dtype=int)
         p[0, :]    = p0
-        indices[0] = self.get_msm_index(self.__fix_zero_one(p0[self.__monomer_index]))
+        mon_frac0  = self.__get_mass_weighted_monomer(p0)
+        indices[0] = self.get_msm_index(self.__fix_zero_one(mon_frac0))
 
         #solve the FKE, grabbing the relevant transition matrix each iteration
         for t in range(T):
@@ -294,11 +295,11 @@ class Collection:
             #update the probabilities 1 step in future
             p[t+1, :] = p[t, :] * TM
 
-            #get the index for the next transition matrix
-            current_mon_frac = p[t+1, self.__monomer_index]
-            current_mon_frac = current_mon_frac / (current_mon_frac + 2*(1-current_mon_frac))
-            current_mon_frac = self.__fix_zero_one(current_mon_frac)
-            indices[t+1] = self.get_msm_index(current_mon_frac)
+            #get the index for the next transition matrix from monomer frac
+            current_mon_frac = self.__get_mass_weighted_monomer(p[t+1, :])
+            indices[t+1] = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
+            print(t+1,current_mon_frac, indices[t+1])
+            # print(TM)
 
 
         #store the solution and indices
@@ -361,6 +362,27 @@ class Collection:
             mon_frac += 1e-6
 
         return mon_frac
+
+    def __get_mass_weighted_monomer(self, probs):
+        #perform mass-weighting on a probability distribution to get the monomer fraction
+
+        #if this is the first time here, create and store a mapping from state index to size
+        if not self.__sizes_stored:
+
+            for i in range(self.__num_states):
+
+                state = self.__macrostate_map.index_to_state(i)
+                size  = state.get_size() # TODO - this needs to be implemented 
+                self.__index_to_size[i] = size
+
+            #switch the flag to true
+            self.__sizes_stored = True
+
+        #take inner product between probs and index_to_size to get MW normalization
+        S = np.dot(probs, self.__index_to_size)
+
+        #return the monomer index scaled by the MW normalization
+        return probs[self.__monomer_index]/S
 
     def get_effective_MSM(self):
 
