@@ -3,8 +3,15 @@ import os
 import fnmatch
 import inspect
 
-
 from collections import defaultdict
+
+'''
+This will require installation of the SAASH library to use this software.
+In the future, will need to either copy-paste the finalized version of State,
+or publish SAASH on pip in order to set it as a requirement.
+'''
+
+from SAASH.structure.cluster import State
 
 
 class Singleton(type):
@@ -46,43 +53,6 @@ class Monomer(metaclass=Singleton):
     def get_size(self):
 
         return 1
-
-
-class State:
-
-    def __init__(self, size, properties = dict()):
-
-        self.__size = size
-        self.__properties = properties
-
-
-    def get_size(self):
-
-        return self.__size
-        
-    def get_properties(self):
-        
-        return self.__properties
-
-    #Note - careful with this hashing. have not verified that it works for dicts
-    def get_hash(self):
-        
-        return hash(self.__size) ^ hash(tuple(self.__properties.items()))
-        
-    def __hash__(self):
-        
-        return self.get_hash()
-        
-    def __eq__(self, state2):
-        
-        if self.__size != state2.get_size():
-            return False
-
-        if self.__properties != state2.get_properties():
-            return False
-            
-        return True
-
 
 
 
@@ -250,7 +220,7 @@ class MacrostateMap:
             self.__toIndex[state] = L
             self.__toState[L] = state
 
-            print("State {} added to map with index {}".format(state, L))
+            print("{} added to map with index {}".format(state, L))
 
             self.__been_updated = True
         

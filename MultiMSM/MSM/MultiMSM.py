@@ -122,8 +122,7 @@ class Collection:
                 for transition in transitions:
                     state1   = transition[0]
                     state2   = transition[1]
-                    #TODO - convert to state before this point?
-                    self.add_transition(State(state1), State(state2), mon_frac)
+                    self.add_transition(state1, state2, mon_frac)
 
         return 
 
