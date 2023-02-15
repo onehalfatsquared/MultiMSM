@@ -282,7 +282,7 @@ class Collection:
         p          = np.zeros((T+1, self.__num_states), dtype=float)
         indices    = np.zeros(T+1, dtype=int)
         p[0, :]    = p0
-        mon_frac0  = self.__get_mass_weighted_monomer(p0)
+        mon_frac0  = p0[self.__monomer_index]
         indices[0] = self.get_msm_index(self.__fix_zero_one(mon_frac0))
 
         #solve the FKE, grabbing the relevant transition matrix each iteration
@@ -295,10 +295,13 @@ class Collection:
             p[t+1, :] = p[t, :] * TM
 
             #get the index for the next transition matrix from monomer frac
-            current_mon_frac = self.__get_mass_weighted_monomer(p[t+1, :])
+            current_mon_frac = p[t+1,self.__monomer_index]
             indices[t+1] = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
-            print(t+1,current_mon_frac, indices[t+1])
-            # print(TM)
+
+            #determine when the monomer fraction hops discretization intervals
+            if indices[t+1] != indices[t]:
+                print(t+1,current_mon_frac, indices[t+1])
+                print(TM)
 
 
         #store the solution and indices
@@ -361,27 +364,6 @@ class Collection:
             mon_frac += 1e-6
 
         return mon_frac
-
-    def __get_mass_weighted_monomer(self, probs):
-        #perform mass-weighting on a probability distribution to get the monomer fraction
-
-        #if this is the first time here, create and store a mapping from state index to size
-        if not self.__sizes_stored:
-
-            for i in range(self.__num_states):
-
-                state = self.__macrostate_map.index_to_state(i)
-                size  = state.get_size() # TODO - this needs to be implemented 
-                self.__index_to_size[i] = size
-
-            #switch the flag to true
-            self.__sizes_stored = True
-
-        #take inner product between probs and index_to_size to get MW normalization
-        S = np.dot(probs, self.__index_to_size)
-
-        #return the monomer index scaled by the MW normalization
-        return probs[self.__monomer_index]/S
 
     def get_effective_MSM(self):
 

@@ -30,6 +30,11 @@ class MSM:
         #after all counts are added, convert to a csr matrix and compute row sums
         #use these to construct a row normalized probability transition matrix
 
+        #TODO - clean this, make usable with State objects with a size
+        #multiply by a weighting matrix to map cluster counts to particle counts
+        weighting = scipy.sparse.dok_matrix(np.mgrid[1:4, 1:4].min(axis=0))
+        self.__count_matrix = self.__count_matrix.multiply(weighting)
+        
         self.__count_matrix = self.__count_matrix.tocsr()
         self.__row_counts   = np.asarray(self.__count_matrix.sum(axis=1)).squeeze()
 

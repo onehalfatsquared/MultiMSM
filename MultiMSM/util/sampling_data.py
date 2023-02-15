@@ -186,7 +186,7 @@ class ClusterSizeData:
             row_sums = np.linalg.norm(self.__summed_sizes, axis=1, ord=1)
             self.__size_distribution = self.__summed_sizes / row_sums[:, None]
 
-            #mass weighted
+            #mass weighted - TODO - will eventually need fixing to use size of state
             num_states = self.__summed_sizes.shape[1]
             size_range = np.arange(1, num_states+1)
             summed_sizes_mw = self.__summed_sizes * size_range
