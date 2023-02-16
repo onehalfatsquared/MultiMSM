@@ -26,18 +26,18 @@ class MSM:
         self.__count_matrix[a,b] += counts
         return
 
-    def finalize_counts(self):
+    def finalize_counts(self, macrostate_map):
         #after all counts are added, convert to a csr matrix and compute row sums
         #use these to construct a row normalized probability transition matrix
 
-        #TODO - clean this, make usable with State objects with a size
-        #multiply by a weighting matrix to map cluster counts to particle counts
-        weighting = scipy.sparse.dok_matrix(np.mgrid[1:4, 1:4].min(axis=0))
-        self.__count_matrix = self.__count_matrix.multiply(weighting)
-        
+        #weight the count matrix to correctly represent mass-weighted dynamics
+        self.__perform_weighting(macrostate_map)
+
+        #convert sparse matrix to csr for more efficient arithmetic. get row sums. 
         self.__count_matrix = self.__count_matrix.tocsr()
         self.__row_counts   = np.asarray(self.__count_matrix.sum(axis=1)).squeeze()
 
+        #normalize the rows to construct a transition matrix
         with warnings.catch_warnings():
             warnings.simplefilter('ignore') #sparse efficiency warning, cant be avoided?
             self.__compute_probability_matrix()
@@ -73,10 +73,10 @@ class MSM:
 
         return self.__lag
 
-    def set_count_matrix(self, count_matrix):
+    def set_count_matrix(self, count_matrix, macrostate_map):
 
         self.__count_matrix = count_matrix
-        self.finalize_counts()
+        self.finalize_counts(macrostate_map)
 
         return
 
@@ -127,3 +127,31 @@ class MSM:
             p[t+1, :] = p[t, :] * TM
 
         return p
+
+    def __perform_weighting(self, macrostate_map):
+        ''' 
+        Multiply the count matrix elementwise by min(size(i),size(j)). 
+        Converts from a cluster perspective (SAASH) to particle perspective,
+        needed to correctly characterize mass-weighted dynamics. 
+        '''
+
+        #get the nonzero indices and number of nonzero elements
+        nzR, nzC = self.__count_matrix.nonzero()
+        nnz = len(nzR)
+
+        #loop over each non-zero, multiply by proper weighting
+        for i in range(nnz):
+
+            #grab the row and column index of the current entry
+            row_index = nzR[i]
+            col_index = nzC[i]
+
+            #convert these state indices to States and grab their size
+            row_state_size = macrostate_map.index_to_state(row_index).get_size()
+            col_state_size = macrostate_map.index_to_state(col_index).get_size()
+
+            #multiply C[r][c] by the weighting min(r_size, c_size)
+            W = min(row_state_size, col_state_size)
+            self.__count_matrix[row_index, col_index] *= W
+
+        return

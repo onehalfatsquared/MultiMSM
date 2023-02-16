@@ -68,10 +68,6 @@ class Collection:
 
         self.__counts_finalized = False
 
-        #init storage and a flag for mapping from state index to size
-        self.__index_to_size = np.zeros(self.__num_states, dtype=int)
-        self.__sizes_stored  = False
-
         return
 
     def add_transition(self, start_state, end_state, monomer_fraction):
@@ -116,7 +112,6 @@ class Collection:
                 #get list of all transitions within the lag interval, and the monomer fraction at that time
                 transitions = traj.get_transitions(start, lag)
                 mon_frac    = traj.get_data()[start]['monomer_fraction']
-                # print(transitions)
 
                 #add them one by one to the dict
                 for transition in transitions:
@@ -162,7 +157,7 @@ class Collection:
 
         for i in range(self.__num_elements):
 
-            self.__MSM_map[i+1].finalize_counts()
+            self.__MSM_map[i+1].finalize_counts(self.__macrostate_map)
 
 
         #set a flag that there are now transition matrices that can be used
@@ -298,12 +293,6 @@ class Collection:
             current_mon_frac = p[t+1,self.__monomer_index]
             indices[t+1] = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
 
-            #determine when the monomer fraction hops discretization intervals
-            if indices[t+1] != indices[t]:
-                print(t+1,current_mon_frac, indices[t+1])
-                print(TM)
-
-
         #store the solution and indices
         self.__fke_soln    = p
         self.__msm_indices = indices
@@ -375,6 +364,6 @@ class Collection:
             count_matrix += self.get_msm(key).get_count_matrix()
 
         msm = MSM(num_states, lag=self.__lag)
-        msm.set_count_matrix(count_matrix)
+        msm.set_count_matrix(count_matrix, self.__macrostate_map)
 
         return msm
