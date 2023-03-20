@@ -11,7 +11,7 @@ In the future, will need to either copy-paste the finalized version of State,
 or publish SAASH on pip in order to set it as a requirement.
 '''
 
-from SAASH.structure.cluster import State
+from SAASH.util.state import State
 
 
 class Singleton(type):
