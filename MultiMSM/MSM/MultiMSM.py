@@ -66,11 +66,116 @@ class Collection:
         self.__bke_soln = None
         self.__msm_indices = None
 
+        #flag to mark when counts are done being added and have been normalized
         self.__counts_finalized = False
+
+        #init count caching variables
+        self.__count_cache = defaultdict(defaultdict(int).copy)
 
         return
 
-    def add_transition(self, start_state, end_state, monomer_fraction):
+    def __load_from_cache(self, cluster_file):
+        '''
+        check if the cache file exists for this file, and if so, load the
+        cache and add the counts from it. 
+
+        returns the success status of loading from cache.
+        '''
+
+        #check for cache file existence
+        cache_file = cluster_file.split(".pkl")[0] + ".cache"
+        if os.path.isfile(cache_file):
+
+            #unpickle it and set the cache for self
+            with open(cache_file,'rb') as infile:
+                save_data = pickle.load(infile)
+                self.__count_cache = save_data[0]
+                old_states = save_data[1]
+
+                #check that the maps are consistent via number of states
+                if (old_states != self.__num_states):
+                    err_msg = "MacrostateMaps must be consistent when loading from cache"
+                    raise RuntimeError(err_msg)
+                
+            #add the counts from the cache to proper cont matrices
+            self.__set_from_cache()
+            return True
+
+        return False
+
+    def __save_cache(self, cluster_file):
+        '''
+        Save the cache via pickle. Include number of states in the macrostate map
+        for easy comparison across runs
+        '''
+
+        #set cache file name and check for overwrites
+        cache_file = cluster_file.split(".pkl")[0] + ".cache"
+        if os.path.isfile(cache_file):
+            err_msg = "Saving this cache would overwrite an old one. This should not be possible. \
+                       Delete the old file if this is desired."
+            raise RuntimeError(err_msg)
+
+        #save the cache as well as the number of states
+        with open(cache_file,'wb') as outfile:
+            pickle.dump((self.__count_cache, self.__num_states), outfile)
+            print("Count cache saved to {}".format(cache_file))
+
+        return
+
+
+    def process_cluster_file(self, cluster_file, cache = False):
+        '''
+        Extract each transition from the given cluster file and add each count
+        to the count matrix. 
+
+        If cache is True, then the events will also be saved in self.__count_cache. 
+        It is a dict that holds tuples of form (start_index,end_index), and associates
+        a distribution of counts over each monomer fraction
+        '''
+
+        #try to load the cache file before constructing from scratch
+        if (cache):
+
+            #try load and return if succesful
+            cache_status = self.__load_from_cache(cluster_file)
+            if (cache_status):
+                return
+
+            #if failed, clear the cache store a new one
+            self.__reset_cache()
+
+        #Process the cluster from scratch
+        self.__process_transitions(cluster_file, cache=cache)
+
+        #save the cached results if requested
+        if (cache):
+            self.__save_cache(cluster_file)
+
+        return
+
+    def __process_transitions(self, cluster_file, cache = False):
+        '''
+        Unpickle the cluster file and add up the counts
+        '''
+
+        #open the pickled file
+        with open(cluster_file, 'rb') as f:
+            sim_results = pickle.load(f)
+
+        #extract the info from the pickle
+        cluster_info = sim_results.cluster_info
+        mon_fracs    = sim_results.monomer_frac
+        mon_ids      = sim_results.monomer_ids
+
+        #count all of the transitions that occur and add to collection
+        self.__add_cluster_transitions(cluster_info, cache=cache)
+        self.__add_monomer_monomer_transitions(mon_fracs, mon_ids, cache=cache)
+
+        return
+
+
+    def __add_transition(self, start_state, end_state, monomer_fraction, cache = False):
         #pick the correct MSM to update based on monomer frac, add a count
 
         #get the dictionary index of the MSM corresponding to this mon_frac
@@ -86,10 +191,12 @@ class Collection:
 
         #add a count to the appropriate MSM
         self.__add_count(start_index, end_index, msm_index)
+        if (cache):
+            self.__count_cache[(start_index,end_index)][int(monomer_fraction*100)] += 1
 
         return
 
-    def add_cluster_transitions(self, cluster_info):
+    def __add_cluster_transitions(self, cluster_info, cache = False):
         '''
         loop over all transitions in cluster info and add them to the correct MSM in 
         collection. 
@@ -117,11 +224,11 @@ class Collection:
                 for transition in transitions:
                     state1   = transition[0]
                     state2   = transition[1]
-                    self.add_transition(state1, state2, mon_frac)
+                    self.__add_transition(state1, state2, mon_frac, cache=cache)
 
         return 
 
-    def add_monomer_monomer_transitions(self, mon_fracs, mon_ids):
+    def __add_monomer_monomer_transitions(self, mon_fracs, mon_ids, cache = False):
         '''
         Loop over each [frame, frame+lag] of the simulation to determine how many 
         monomer -> monomer transitions there are, and at what monomer fraction
@@ -144,12 +251,65 @@ class Collection:
             set2 = mon_ids[i+lag]
 
             #update the count with the number of monomers that persisted
-            MMcounts[msm_index] += len(set1.intersection(set2))
+            num_persisted = len(set1.intersection(set2))
+            MMcounts[msm_index] += num_persisted
+            if (cache):
+                self.__count_cache[(self.__monomer_index, self.__monomer_index)][int(mon_frac*100)] += num_persisted
 
         #update the MSMs in the collection with the finalized counts
         self.__update_monomer_monomer_counts(MMcounts)
         return
 
+    def __add_count(self, start_index, end_index, msm_index, counts = 1):
+
+        self.__MSM_map[msm_index].add_count(start_index, end_index, counts = counts)
+        return
+
+    def __update_monomer_monomer_counts(self, MMcounts):
+        #update the (monomer,monomer) entry of count matrix in each MSM according to value in MMcount
+
+        #get the monomer state index (should be 0)
+        monomer_index = self.__monomer_index
+
+        #loop over each key (msm index) and append number of mon -> mon counts
+        for key in MMcounts:
+        
+            #check if the key is a non-allowed index (i.e. mon frac of exactly 0 or 1)
+            if (key == 0):
+                msm_key = 1 #map this entry to the first interval
+            elif (key == (self.__num_elements+1)):
+               msm_key = key-1 #map entry to the last interval
+            else:
+                msm_key = key
+            
+            #extract and add the counts
+            num_counts = MMcounts[key]
+            self.__add_count(monomer_index, monomer_index, msm_key, counts = num_counts)
+
+        return
+
+    def __set_from_cache(self):
+        '''
+        Use the transition data stored in the cache to add to the count matrix. 
+        '''
+
+        #outermost dict has keys (start_index,end_index) and values are dicts
+        for transition in self.__count_cache:
+
+            #extract the indices and the inner dict
+            state1 = transition[0]
+            state2 = transition[1]
+            data = self.__count_cache[transition]
+
+            #innermost dict has keys (100*mon_frac) and values are counts
+            for frac in data:
+
+                #get counts, compute an index from frac, add the counts
+                counts = data[frac]
+                msm_index = self.get_msm_index(self.__fix_zero_one(frac/100))
+                self.__add_count(state1, state2, msm_index, counts = counts)
+
+        return
 
 
     def finalize_counts(self):
@@ -207,33 +367,6 @@ class Collection:
         self.solve_FKE(init_dist, T)
         return self.__fke_soln
 
-    def __add_count(self, start_index, end_index, msm_index, counts = 1):
-
-        self.__MSM_map[msm_index].add_count(start_index, end_index, counts = counts)
-        return
-
-    def __update_monomer_monomer_counts(self, MMcounts):
-        #update the (monomer,monomer) entry of count matrix in each MSM according to value in MMcount
-
-        #get the monomer state index (should be 0)
-        monomer_index = self.__monomer_index
-
-        #loop over each key (msm index) and append number of mon -> mon counts
-        for key in MMcounts:
-        
-            #check if the key is a non-allowed index (i.e. mon frac of exactly 0 or 1)
-            if (key == 0):
-            	msm_key = 1 #map this entry to the first interval
-            elif (key == (self.__num_elements+1)):
-               msm_key = key-1 #map entry to the last interval
-            else:
-            	msm_key = key
-            
-            #extract and add the counts
-            num_counts = MMcounts[key]
-            self.__add_count(monomer_index, monomer_index, msm_key, counts = num_counts)
-
-        return
 
     def print_all_transition_matrices(self):
 
@@ -353,6 +486,11 @@ class Collection:
             mon_frac += 1e-6
 
         return mon_frac
+
+    def __reset_cache(self):
+
+        self.__count_cache = defaultdict(defaultdict(int).copy)
+        return
 
     def get_effective_MSM(self):
 
