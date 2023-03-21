@@ -4,7 +4,7 @@ MSM estimates to sampled averages for things like probabilities of each cluster
 size. 
 
 Implements a save and load system so the analysis does not have to be repeated each 
-time one wants to visualize the  sampled data. To do so, Data classes will be pickled 
+time one wants to visualize the sampled data. To do so, Data classes will be pickled 
 into the directory data/sampling/, which will be a subdirectory of the directory this
 file is located. 
 
@@ -15,13 +15,15 @@ which deletes all old data and does the analysis from scratch.
 It is assumed that all trajectory files will be stored in the folder 
 "../trajectories/parameters/", where "parameters" gives an identifier of what tunable parameters
 the trajectories were run for. E.g. "../trajectories/E10.0/".  
-Cluster size trajectory files are assumed to have file extension ".cl"
+
+Cluster size trajectory files are assumed to have file extension ".sizes"
 
 '''
 
 import sys
 import os
 import fnmatch
+import glob
 
 import numpy as np
 
@@ -61,7 +63,7 @@ class ClusterSizeData:
         #if deleting, and the map has been updated without being saved, save it. 
 
         if self.__was_loaded and self.__been_updated:
-            self.__save(self.__map_name)
+            self.__save()
 
         return
 
@@ -87,16 +89,17 @@ class ClusterSizeData:
     def __set_storage_info(self, data_folder):
 
         #check if the directories /data/ and /data/sampling/ exist
-        if not os.path.isdir("data/"):
-            os.makedirs("data/")
+        if not os.path.isdir(data_folder+"/data/"):
+            os.makedirs(data_folder+"/data/")
 
-        if not os.path.isdir("data/sampling/"):
-            os.makedirs("data/sampling/")
+        if not os.path.isdir(data_folder+"/data/sampling/"):
+            os.makedirs(data_folder+"/data/sampling/")
 
         #grab the parameter identifiers from the data folder and set storage loc
-        self.__storage_location  = "data/sampling/"
-        p_identity               = data_folder.split("/")[-2]
-        self.__storage_location += p_identity + ".pkl"
+        self.__storage_location  = data_folder+"data/sampling/"
+        # p_identity               = data_folder.split("/")[-2]
+        # self.__storage_location += p_identity + ".pkl"
+        self.__storage_location += "cache.csd"
 
         return
 
@@ -115,15 +118,20 @@ class ClusterSizeData:
     def __process_files(self, data_folder):
         #loop over all .cl files in the folder, do analysis
 
+        # TODO - make this walk through subdirectories to find .cl files too
+
         #get a sorted list of all the .cl files
-        all_files = fnmatch.filter(os.listdir(data_folder), 'traj*.cl')
+        # all_files = fnmatch.filter(os.listdir(data_folder), '/*.sizes')
+        all_files = glob.glob(data_folder + '/**/*.sizes', recursive=True)
         all_files.sort()
+        print("Found {} '.sizes' files in {}. Processing new files...".format(len(all_files), data_folder))
 
         #check if each file is already processed, if not, process it
         for traj_file in all_files:
 
             if traj_file not in self.__processed:
-                self.__process(data_folder + traj_file)
+                print("Processing new file {}".format(traj_file))
+                self.__process(traj_file)
                 self.__processed.append(traj_file)
                 self.__been_updated = True
 
@@ -178,6 +186,9 @@ class ClusterSizeData:
 
     def get_normalized_distribution(self, mass_weighted = False):
         #compute a normalized probability distribution at each frame 
+
+        if len(self.__processed) == 0:
+            return None
 
         #if an update has occured, recompute normalized distributions
         if self.__been_updated or self.__size_distribution is None:

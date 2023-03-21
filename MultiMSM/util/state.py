@@ -42,6 +42,10 @@ class Monomer(metaclass=Singleton):
         self.__state = state
         self.__index = index
 
+        if not isinstance(state, State):
+            err_msg = "Init the Monomer with a State object"
+            raise RuntimeError(err_msg)
+
     def get_state(self):
 
         return self.__state
@@ -136,7 +140,7 @@ class MacrostateMap:
 
             except:
 
-                filepath = self.__storage_location + load_name + ".pkl"
+                filepath = self.__storage_location + load_name + ".map"
                 err_msg  = "Object could not be loaded from {}. ".format(filepath)
                 err_msg += "Check the path and try again, or contruct a new map from scratch"
                 raise RuntimeError(err_msg)
@@ -153,7 +157,7 @@ class MacrostateMap:
         #init and set monomer state and index, creates a singleton for Monomer
         self.__monomer_state = None
         self.__monomer_index = -1
-        self.set_monomer_state(monomer_state)
+        self.set_monomer_state(monomer_state.get_state())
 
         #set load state to false
         self.__was_loaded = False
@@ -165,7 +169,7 @@ class MacrostateMap:
 
         #set the path to save the object
         self.__map_name = map_name
-        filepath        = self.__storage_location + map_name + ".pkl"
+        filepath        = self.__storage_location + map_name + ".map"
 
         #pickle it to the location
         with open(filepath,'wb') as outfile:
@@ -176,7 +180,7 @@ class MacrostateMap:
     def __load(self, map_name):
 
         #set the filepath and load it
-        filepath = self.__storage_location + map_name + ".pkl"
+        filepath = self.__storage_location + map_name + ".map"
 
         with open(filepath,'rb') as infile:
             self.__dict__ = pickle.load(infile).__dict__
@@ -245,3 +249,21 @@ class MacrostateMap:
     def get_monomer_index(self):
 
         return self.__monomer_index
+
+    def filter_by_size(self, sizes):
+        #return all indices for states with size in sizes
+
+        #if only an int is given, put in list so code is general
+        if isinstance(sizes, int):
+            sizes = [sizes]
+
+        #init output list for indices
+        output_indices = []
+
+        #perform dictionary comprehension for each size in sizes
+        for size in sizes:
+
+            indices = [self.__toIndex[state] for state in self.__toIndex.keys() if state.get_size() == size ]
+            output_indices += indices
+
+        return output_indices

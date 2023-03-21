@@ -83,7 +83,7 @@ class Collection:
         '''
 
         #check for cache file existence
-        cache_file = cluster_file.split(".pkl")[0] + ".cache"
+        cache_file = cluster_file.split(".cl")[0] + ".cache"
         if os.path.isfile(cache_file):
 
             #unpickle it and set the cache for self
@@ -110,7 +110,7 @@ class Collection:
         '''
 
         #set cache file name and check for overwrites
-        cache_file = cluster_file.split(".pkl")[0] + ".cache"
+        cache_file = cluster_file.split(".cl")[0] + ".cache"
         if os.path.isfile(cache_file):
             err_msg = "Saving this cache would overwrite an old one. This should not be possible. \
                        Delete the old file if this is desired."
@@ -340,6 +340,10 @@ class Collection:
     def get_transition_matrix(self, msm_index):
 
         return self.get_msm(msm_index).get_transition_matrix()
+
+    def get_count_matrix(self, msm_index):
+
+        return self.get_msm(msm_index).get_count_matrix()
 
     def get_FKE(self, p0 = None, T = 100):
 

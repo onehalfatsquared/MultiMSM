@@ -66,3 +66,7 @@ class Discretization:
         if cutoffs != sorted(cutoffs):
             err_msg  = "The discretization is not sorted.\n"
             raise RuntimeError(err_msg)
+
+    def __len__(self):
+
+        return self.get_num_intervals()
