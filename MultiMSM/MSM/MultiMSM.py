@@ -71,6 +71,7 @@ class Collection:
 
         #init count caching variables
         self.__count_cache = defaultdict(defaultdict(int).copy)
+        self.__clear_cache_flag = False
 
         return
 
@@ -94,7 +95,8 @@ class Collection:
 
                 #check that the maps are consistent via number of states
                 if (old_states != self.__num_states):
-                    err_msg = "MacrostateMaps must be consistent when loading from cache"
+                    err_msg = "MacrostateMaps must be consistent when loading from cache. "
+                    err_msg+= "Call clear_cache() before processing to use new map. "
                     raise RuntimeError(err_msg)
                 
             #add the counts from the cache to proper cont matrices
@@ -111,7 +113,7 @@ class Collection:
 
         #set cache file name and check for overwrites
         cache_file = cluster_file.split(".cl")[0] + ".cache"
-        if os.path.isfile(cache_file):
+        if os.path.isfile(cache_file) and not self.__clear_cache_flag:
             err_msg = "Saving this cache would overwrite an old one. This should not be possible. \
                        Delete the old file if this is desired."
             raise RuntimeError(err_msg)
@@ -138,9 +140,10 @@ class Collection:
         if (cache):
 
             #try load and return if succesful
-            cache_status = self.__load_from_cache(cluster_file)
-            if (cache_status):
-                return
+            if not self.__clear_cache_flag:
+                cache_status = self.__load_from_cache(cluster_file)
+                if (cache_status):
+                    return
 
             #if failed, clear the cache store a new one
             self.__reset_cache()
@@ -207,7 +210,6 @@ class Collection:
         #loop over each trajectory in cluster info
         for traj_num in range(len(cluster_info)):
 
-            # print(i)
             traj = cluster_info[traj_num]
 
             #get the length of the trajectory
@@ -490,6 +492,15 @@ class Collection:
             mon_frac += 1e-6
 
         return mon_frac
+
+    def clear_cache(self):
+        '''
+        Calling this method will set a flag to avoid the check for inconsistent maps. 
+        The next time files are processed, a new cache will be built and saved.
+        '''
+
+        self.__clear_cache_flag = True
+        return
 
     def __reset_cache(self):
 

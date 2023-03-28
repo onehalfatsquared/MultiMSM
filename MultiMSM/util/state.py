@@ -214,7 +214,7 @@ class MacrostateMap:
 
         return
 
-    def update_maps(self, state):
+    def update_maps(self, state, verbose = False):
         #check if the supplied state is in the map. If not add it
 
         if state not in self.__toIndex:
@@ -224,7 +224,8 @@ class MacrostateMap:
             self.__toIndex[state] = L
             self.__toState[L] = state
 
-            print("{} added to map with index {}".format(state, L))
+            if verbose:
+                print("{} added to map with index {}".format(state, L))
 
             self.__been_updated = True
         

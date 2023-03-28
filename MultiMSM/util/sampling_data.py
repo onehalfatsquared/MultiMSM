@@ -118,10 +118,7 @@ class ClusterSizeData:
     def __process_files(self, data_folder):
         #loop over all .cl files in the folder, do analysis
 
-        # TODO - make this walk through subdirectories to find .cl files too
-
         #get a sorted list of all the .cl files
-        # all_files = fnmatch.filter(os.listdir(data_folder), '/*.sizes')
         all_files = glob.glob(data_folder + '/**/*.sizes', recursive=True)
         all_files.sort()
         print("Found {} '.sizes' files in {}. Processing new files...".format(len(all_files), data_folder))
