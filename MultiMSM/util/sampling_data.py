@@ -94,6 +94,10 @@ class SizeDistribution:
         #now that the arrays are the same size, add them
         self.__size_counts += other_distribution.get_cluster_size_data()
 
+        #update the array size stats
+        self.__num_time_pts = self.__size_counts.shape[0]
+        self.__largest_size = self.__size_counts.shape[1]
+
         return self
 
 
@@ -256,11 +260,13 @@ class ClusterSizeData:
     def __init_log(self):
         #make a new processed file log
 
-        self.__largest_size      = 0
-        self.__been_updated      = True
-        self.__was_loaded        = False
-        self.__processed         = []
-        self.__summed_sizes      = None
+        self.__been_updated = True
+        self.__was_loaded   = False
+        self.__processed    = []
+        self.__distribution = SizeDistribution()
+        self.__times_log    = []     
+
+        #init variables to store the returned distributions
         self.__size_distribution = None
         self.__mass_weighted_sd  = None
         return
@@ -288,8 +294,8 @@ class ClusterSizeData:
 
         return
 
-    def __process(self, file_path):
-        #process a single file
+    def __parse_size_data(self, file_path):
+        #read the data from size file and parse into an array
 
         #init temp storage for size data
         cluster_size_counts = []
@@ -302,32 +308,22 @@ class ClusterSizeData:
                 frame_data = [int(val) for val in split_line[1:(L-1)]]
                 cluster_size_counts.append(frame_data)
 
-        #make an np array with the sizes. 
+        return cluster_size_counts
+
+
+    def __process(self, file_path):
+        #process a single file
+
+        #parse the data into an array
+        cluster_size_counts = self.__parse_size_data(file_path)
+
+        #make an np array with the sizes. create a distribution and add it to self
         cluster_size_counts = np.array(cluster_size_counts)
+        cluster_size_distr  = SizeDistribution(cluster_size_counts)
+        self.__distribution+= cluster_size_distr
 
-        #if sum does not exist, init it as counts. if it does, add to sum
-        if self.__summed_sizes is None:
-
-            self.__summed_sizes  = np.zeros(cluster_size_counts.shape, dtype=int)
-            self.__largest_size  = cluster_size_counts.shape[1]
-            self.__summed_sizes += cluster_size_counts
-
-        else:
-
-            #check if the dimensions of new size counts match storage
-            if cluster_size_counts.shape[1] > self.__largest_size:
-
-                #ignore the larger sized structures measured
-                cluster_size_counts = cluster_size_counts[:,:self.__largest_size]
-
-            elif cluster_size_counts.shape[1] < self.__largest_size:
-
-                #change largest size to accomdate a smaller max size
-                self.__largest_size = cluster_size_counts.shape[1]
-                self.__summed_sizes = self.__summed_sizes[:,:self.__largest_size]
-
-            #add the new counts
-            self.__summed_sizes += cluster_size_counts
+        #append the number of time points in this trajectory to the log
+        self.__times_log.append(cluster_size_distr.get_num_time_points())
 
         return
 
@@ -340,16 +336,11 @@ class ClusterSizeData:
         #if an update has occured, recompute normalized distributions
         if self.__been_updated or self.__size_distribution is None:
             
-            #non mass weighted
-            row_sums = np.linalg.norm(self.__summed_sizes, axis=1, ord=1)
-            self.__size_distribution = self.__summed_sizes / row_sums[:, None]
+            #non mass-weighted
+            self.__size_distribution = self.__normalize_distribution()
 
-            #mass weighted - TODO - will eventually need fixing to use size of state
-            num_states = self.__summed_sizes.shape[1]
-            size_range = np.arange(1, num_states+1)
-            summed_sizes_mw = self.__summed_sizes * size_range
-            row_sums = np.linalg.norm(summed_sizes_mw, axis=1, ord=1)
-            self.__mass_weighted_sd = summed_sizes_mw / row_sums[:, None]
+            #mass-weighted
+            self.__mass_weighted_sd  = self.__mass_weight_distribution(self.__size_distribution)
 
 
         #return the corresponding distribution
@@ -361,4 +352,49 @@ class ClusterSizeData:
     def get_num_samples(self):
 
         return len(self.__processed)
+
+    def __compute_num_samples_series(self):
+        #get a time series for the number of samples summed in each time index
+
+        #get the max number of time points and init an array for number of trajs
+        max_time    = np.max(self.__times_log)
+        num_samples = np.zeros(max_time, dtype=int)
+
+        #fill the numbe rof samples array using elements of times_log
+        for final_time in self.__times_log:
+
+            num_samples[:final_time] += 1
+
+        return num_samples
+
+    def __normalize_distribution(self):
+        #return a normalized distribution of the count data
+        #first divide each time by number of samples at that time, then L1 normalize rows
+
+        #get the cluster size counts and the time series of samples
+        cluster_size_distribution = self.__distribution.get_cluster_size_data()
+        num_samples = self.__compute_num_samples_series()
+
+        #normalize by the number of samples, compute row sums, normalize by row sums
+        cluster_size_distribution = cluster_size_distribution / num_samples[:, None]
+        row_sums                  = np.linalg.norm(cluster_size_distribution, axis=1, ord=1)
+
+        return (cluster_size_distribution / row_sums[:, None])
+
+    def __mass_weight_distribution(self, size_distribution):
+        #mass weight the given distribution
+        #can assume index i has mass i+1 for now
+
+        #get the weights for all sizes present in the systems
+        num_states = self.__distribution.get_largest_size()
+        size_range = np.arange(1, num_states+1)
+
+        #multiply distribution by masses and renormalize
+        mw_distr = size_distribution * size_range
+        row_sums = np.linalg.norm(mw_distr, axis=1, ord=1)
+        
+        return (mw_distr / row_sums[:, None])
+
+
+
 
