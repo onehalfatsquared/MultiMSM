@@ -15,6 +15,7 @@ class MSM:
         self.__count_matrix = scipy.sparse.dok_matrix((num_states, num_states), dtype=int)
         self.__P            = scipy.sparse.csr_matrix((num_states, num_states), dtype=float)
         self.__row_counts   = np.zeros(num_states, dtype=int)
+        self.__row_counts_uw= np.zeros(num_states, dtype=int)
 
         self.__lag = lag
 
@@ -29,6 +30,9 @@ class MSM:
     def finalize_counts(self, macrostate_map):
         #after all counts are added, convert to a csr matrix and compute row sums
         #use these to construct a row normalized probability transition matrix
+
+        #store the unweighted row counts before performing the weighting
+        self.__row_counts_uw = np.asarray(self.__count_matrix.sum(axis=1)).squeeze()
 
         #weight the count matrix to correctly represent mass-weighted dynamics
         self.__perform_weighting(macrostate_map)
@@ -82,15 +86,18 @@ class MSM:
 
     def get_count_matrix(self):
 
-        return self.__count_matrix
+        return self.__count_matrix.copy()
 
-    def get_row_counts(self):
+    def get_row_counts(self, weighted = False):
 
-        return self.__row_counts
+        if weighted:
+            return self.__row_counts.copy()
+
+        return self.__row_counts_uw
 
     def get_transition_matrix(self):
 
-        return self.__P
+        return self.__P.copy()
 
     def solve_FKE(self, p0, T):
         '''

@@ -29,6 +29,158 @@ import numpy as np
 
 import pickle
 
+from enum import Enum
+
+class SizeCompare(Enum):
+
+    SAME = 0
+    TIME = 1
+    SIZE = 2
+
+
+class SizeDistribution:
+
+    def __init__(self, cluster_size_counts = None, largest_size = 60):
+
+        self.__largest_size = largest_size
+        self.__num_time_pts = 1
+
+        self.__TIME_DIM = 0
+        self.__SIZE_DIM = 1
+
+        if cluster_size_counts is not None:
+            self.__setup_arrays(cluster_size_counts)
+        else:
+            self.__size_counts = np.zeros((self.__num_time_pts, self.__largest_size), dtype=float)
+
+
+    def __setup_arrays(self, cluster_size_counts):
+        #grab array information from the size counts
+
+        #check that the supplied array is an nparray with suitable dimensions
+        if not isinstance(cluster_size_counts, np.ndarray):
+            raise TypeError("Please provide an np.ndarray for cluster_size_counts")
+
+        #set the size propoerties
+        self.__num_time_pts = cluster_size_counts.shape[0]
+        self.__largest_size = cluster_size_counts.shape[1]
+
+        #store the array
+        self.__size_counts  = cluster_size_counts.copy()
+
+        return
+
+    def get_num_time_points(self):
+
+        return self.__num_time_pts
+
+    def get_largest_size(self):
+
+        return self.__largest_size
+
+    def get_cluster_size_data(self):
+
+        return self.__size_counts.copy()
+
+
+
+    def __add__(self, other_distribution):
+
+        #check for consistency between the sizes and fix discrepancies
+        change_list = self.__get_resize_cases(other_distribution)
+        for change in change_list:
+            self.__apply_fix(other_distribution, change)
+
+        #now that the arrays are the same size, add them
+        self.__size_counts += other_distribution.get_cluster_size_data()
+
+        return self
+
+
+    def __get_resize_cases(self, other_distribution):
+        #return a list consisting of all of the changes necessary to make arrays same size
+        #tuples consisting of (type of change (enum), which array needs to be changed (str))
+
+        change_list = []
+
+        if (self.__size_counts.shape == other_distribution.get_cluster_size_data().shape):
+            change_list.append((SizeCompare.SAME, None))
+
+        if (self.get_largest_size() > other_distribution.get_largest_size()):
+            change_list.append((SizeCompare.SIZE,"other"))
+
+        elif (self.get_largest_size() < other_distribution.get_largest_size()):
+            change_list.append((SizeCompare.SIZE,"self"))
+
+        if (self.get_num_time_points() > other_distribution.get_num_time_points()):
+            change_list.append((SizeCompare.TIME,"other"))
+
+        elif (self.get_num_time_points() < other_distribution.get_num_time_points()):
+            change_list.append((SizeCompare.TIME,"self"))
+
+        return change_list
+
+    def __apply_fix(self, other_distribution, change):
+        #apply the supplied change to the distributions
+
+        #determine which case we are handling
+        case      = change[0]
+        to_modify = change[1]
+
+        #exit if case is same
+        if (case == SizeCompare.SAME):
+            return
+
+        #handle size cases
+        if (case == SizeCompare.SIZE):
+
+            if to_modify == "self":
+                new_size = other_distribution.get_largest_size()
+                self.resize_array(new_size, self.__SIZE_DIM)
+
+            elif to_modify == "other":
+                new_size = self.get_largest_size()
+                other_distribution.resize_array(new_size, self.__SIZE_DIM)
+
+        #handle time cases
+        if (case == SizeCompare.TIME):
+
+            if to_modify == "self":
+                new_size = other_distribution.get_num_time_points()
+                self.resize_array(new_size, self.__TIME_DIM)
+
+            elif to_modify == "other":
+                new_size = self.get_num_time_points()
+                other_distribution.resize_array(new_size, self.__TIME_DIM)
+
+        return
+
+
+    def resize_array(self, new_size, dim):
+        #resize the array to the new size in the specified dimension and fill with 0s
+        #NOTE: prior logic should ensure that arrays are only ever made larger
+
+        #get the current shape and size of the specified dim
+        array_shape = self.__size_counts.shape
+        old_size    = array_shape[dim] 
+
+        #pad the array with zeros
+        pad_width = np.zeros((2,2), dtype=int)
+        pad_width[dim][1] = new_size-old_size
+        self.__size_counts = np.pad(self.__size_counts, pad_width, 
+                                    'constant', constant_values=(0,0))
+        return
+        
+
+
+
+
+
+
+
+
+        
+
 
 
 class ClusterSizeData:
@@ -97,8 +249,6 @@ class ClusterSizeData:
 
         #grab the parameter identifiers from the data folder and set storage loc
         self.__storage_location  = data_folder+"data/sampling/"
-        # p_identity               = data_folder.split("/")[-2]
-        # self.__storage_location += p_identity + ".pkl"
         self.__storage_location += "cache.csd"
 
         return
