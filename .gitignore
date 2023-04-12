@@ -146,6 +146,7 @@ dmypy.json
 
 #pickled objects
 *.pkl
+*.cache
 
 #images
 *.png
