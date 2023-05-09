@@ -174,7 +174,6 @@ class MonomerFractionCountHist:
         #make a subplot figure
         fig, (ax1,ax2) = plt.subplots(1,2)
 
-
         ax1.bar(self.__count_hist.keys(), self.__count_hist.values())
         ax2.bar(self.__monomer_counts.keys(), self.__monomer_counts.values())
 
