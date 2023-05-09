@@ -8,5 +8,5 @@ setup(
     author='onehalfatsquared',
     license='MIT',
     test_suite='testing',
-    install_requires=['numpy','scipy','sklearn']
+    install_requires=['numpy','scipy','scikit-learn']
 )
