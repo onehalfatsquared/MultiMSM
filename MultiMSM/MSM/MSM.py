@@ -1,7 +1,6 @@
 import numpy as np
 import scipy
 from scipy import sparse
-from sklearn.preprocessing import normalize
 
 import warnings
 

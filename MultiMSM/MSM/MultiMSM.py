@@ -7,9 +7,8 @@ import pickle
 import numpy as np
 import scipy
 from scipy import sparse
-from sklearn.preprocessing import normalize
 
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 from .MSM import MSM
 
@@ -60,6 +59,9 @@ class Collection:
 
             self.__MSM_map[i+1] = MSM(self.__num_states, lag=lag)
 
+        #store number of observations of each monomer fraction
+        self.__frac_freqs  = Counter()
+
         #init storage for solutions to forward and backward equations
         #size of these arrays depend on final time, a runtime variable
         self.__fke_soln = None
@@ -71,6 +73,7 @@ class Collection:
 
         #init count caching variables
         self.__count_cache = defaultdict(defaultdict(int).copy)
+        self.__freq_cache  = defaultdict(int)
         self.__clear_cache_flag = False
 
         return
@@ -91,7 +94,8 @@ class Collection:
             with open(cache_file,'rb') as infile:
                 save_data = pickle.load(infile)
                 self.__count_cache = save_data[0]
-                old_states = save_data[1]
+                self.__freq_cache  = save_data[1]
+                old_states         = save_data[2]
 
                 #check that the maps are consistent via number of states
                 if (old_states != self.__num_states):
@@ -99,7 +103,7 @@ class Collection:
                     err_msg+= "Call clear_cache() before processing to use new map. "
                     raise RuntimeError(err_msg)
                 
-            #add the counts from the cache to proper cont matrices
+            #add the counts from the cache to proper count matrices
             self.__set_from_cache()
             return True
 
@@ -120,7 +124,7 @@ class Collection:
 
         #save the cache as well as the number of states
         with open(cache_file,'wb') as outfile:
-            pickle.dump((self.__count_cache, self.__num_states), outfile)
+            pickle.dump((self.__count_cache, self.__freq_cache, self.__num_states), outfile)
             print("Count cache saved to {}".format(cache_file))
 
         return
@@ -145,7 +149,7 @@ class Collection:
                 if (cache_status):
                     return
 
-            #if failed, clear the cache store a new one
+            #if failed, clear the cache, store a new one
             self.__reset_cache()
 
         #Process the cluster from scratch
@@ -257,6 +261,10 @@ class Collection:
             MMcounts[msm_index] += num_persisted
             if (cache):
                 self.__count_cache[(self.__monomer_index, self.__monomer_index)][int(mon_frac*100)] += num_persisted
+                self.__freq_cache[int(mon_frac*100)] += 1
+
+            #update number of times each monomer frac is seen
+            self.__frac_freqs[int(mon_frac*100)] += 1
 
         #update the MSMs in the collection with the finalized counts
         self.__update_monomer_monomer_counts(MMcounts)
@@ -293,6 +301,7 @@ class Collection:
     def __set_from_cache(self):
         '''
         Use the transition data stored in the cache to add to the count matrix. 
+        Also update the frac frequencies counter. 
         '''
 
         #outermost dict has keys (start_index,end_index) and values are dicts
@@ -311,6 +320,9 @@ class Collection:
                 msm_index = self.get_msm_index(self.__fix_zero_one(frac/100))
                 self.__add_count(state1, state2, msm_index, counts = counts)
 
+        #update the fracs with cached frequencies
+        self.__frac_freqs.update(self.__freq_cache)
+
         return
 
 
@@ -326,6 +338,10 @@ class Collection:
         self.__counts_finalized = True
 
         return
+    
+    def get_frac_freqs(self):
+
+        return self.__frac_freqs
 
     def get_lag(self):
 
@@ -505,6 +521,7 @@ class Collection:
     def __reset_cache(self):
 
         self.__count_cache = defaultdict(defaultdict(int).copy)
+        self.__freq_cache  = defaultdict(int)
         return
 
     def get_effective_MSM(self):

@@ -2,6 +2,7 @@ import sys
 import os
 import fnmatch
 import inspect
+import pickle
 
 from collections import defaultdict
 

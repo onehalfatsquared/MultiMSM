@@ -66,7 +66,7 @@ class StateCountHist:
             labels.append(str(thresholds[i])+'-'+str(thresholds[i+1]))
         labels.append(str(thresholds[-1])+"+")
         
-        #make a bar plot of the data and set radable font sizes
+        #make a bar plot of the data and set readable font sizes
         plt.bar(range(len(thresholds)), new_hist, tick_label=labels)
         plt.xlabel("# observations",fontsize=18)
         plt.xticks(fontsize=12)
@@ -181,7 +181,56 @@ class MonomerFractionCountHist:
         plt.show()
 
         return
+    
+class MonomerFractionObservationHist:
 
+    def __init__(self, msmCollection):
+
+        self.__hist_data = msmCollection.get_frac_freqs()
+
+        return 
+    
+    def plot_hist(self, plot_range = None):
+        '''
+        Plot histogram of the number of frames each monomer fraction is observed for. 
+        Can supply an optional range filter to exclude points. 
+        '''
+        labels, values = zip(*self.__hist_data.items())
+        labels = list(labels)
+        values = list(values)
+
+        if plot_range is None:
+            
+            self.__make_hist(labels, values)
+            return
+
+        #if there is a range, filter out unwanted points and replot
+        to_remove = []
+        for i in range(len(labels)):
+            if labels[i] < plot_range[0] or labels[i] > plot_range[1]:
+                to_remove.append(i)
+
+        #need to be descending to pop without indexing issues
+        to_remove.sort(reverse=True)
+        for index in to_remove:
+            labels.pop(index)
+            values.pop(index)
+
+        #plot new hist
+        self.__make_hist(labels, values)
+
+        return
+
+    def __make_hist(self, labels, values):
+
+        plt.bar(labels, values, 1)
+        plt.xlabel("Monomer Fractions",fontsize=18)
+        plt.xticks(fontsize=12)
+        plt.ylabel("# observations",fontsize=18)
+        plt.yticks(fontsize=12)
+        plt.show()
+
+        return
 
 
 
