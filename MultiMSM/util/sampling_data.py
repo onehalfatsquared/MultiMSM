@@ -178,7 +178,7 @@ class SizeDistribution:
 
 class ClusterSizeData:
 
-    def __init__(self, data_folder, recompute = False):
+    def __init__(self, data_folder, recompute = False, verbose=False):
 
         #set location for storage of this class based on name of data folder
         self.__set_storage_info(data_folder)
@@ -197,6 +197,8 @@ class ClusterSizeData:
         else:
 
             self.__init_log()
+
+        self.__verbose = verbose
 
         #process the files in the data folder
         self.__process_files(data_folder)
@@ -217,7 +219,8 @@ class ClusterSizeData:
 
         with open(self.__storage_location,'wb') as outfile:
             pickle.dump(self, outfile)
-            print("Cluster Size Data saved to {}".format(self.__storage_location))
+            if self.__verbose:
+                print("Cluster Size Data saved to {}".format(self.__storage_location))
 
         return
 
@@ -227,7 +230,8 @@ class ClusterSizeData:
             self.__dict__ = pickle.load(infile).__dict__
             self.__been_updated = False
             self.__was_loaded   = True
-            print("Cluster Size Data loaded from {}".format(self.__storage_location))
+            if self.__verbose:
+                print("Cluster Size Data loaded from {}".format(self.__storage_location))
 
         return
 
@@ -266,13 +270,15 @@ class ClusterSizeData:
         #get a sorted list of all the .cl files
         all_files = glob.glob(data_folder + '/**/*.sizes', recursive=True)
         all_files.sort()
-        print("Found {} '.sizes' files in {}. Processing new files...".format(len(all_files), data_folder))
+        if self.__verbose:
+            print("Found {} '.sizes' files in {}. Processing new files...".format(len(all_files), data_folder))
 
         #check if each file is already processed, if not, process it
         for traj_file in all_files:
 
             if traj_file not in self.__processed:
-                print("Processing new file {}".format(traj_file))
+                if self.__verbose:
+                    print("Processing new file {}".format(traj_file))
                 self.__process(traj_file)
                 self.__processed.append(traj_file)
                 self.__been_updated = True

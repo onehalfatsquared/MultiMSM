@@ -10,6 +10,8 @@ from scipy import sparse
 
 from collections import defaultdict, Counter
 
+import time
+
 from .MSM import MSM
 
 #append parent directory to import util
@@ -28,10 +30,139 @@ from ..util.state import State
 sys.path.pop(0)
 
 
+class MultiMSMBuilder:
+    '''
+    This class is responsible for actually constructing and returning the MultiMSM. 
+    It takes in the discretization, macrostate mapping, and the location of the 
+    .cl file trajectories to fill a Collection object. 
+
+    Can also cache the observation counts as a function of the monomer fraction to
+    allow for quick reconstruction of the MultiMSM with a different discretization. 
+    The number of files to include can also be set to study convergence with regard to 
+    number of samples. Files are sorted by file name and will simply leave off the 
+    trailing N-num_files files.  
+    '''
+
+    def __init__(self, discretization, macrostate_map, traj_folder, lag = 1,
+                 params = {}, cache = True, clear_cache = False, num_files = None,
+                 verbose = False):
+        
+        #store any optional input parameters
+        self.__clear_cache = clear_cache
+        self.__cache       = cache
+        self.__num_files   = num_files
+        self.__verbose     = verbose
+        self.__params      = params
+        self.__lag         = lag
+
+        #make an empty collection to form the MultiMSM, store the discretization and map
+        self.C = Collection(discretization, macrostate_map, parameters=params, lag=lag)
+        self.__discretization = discretization
+        self.__macrostate_map = macrostate_map
+
+        #gather the relevant cl files to construct the MultiMSM, all of them
+        self.__gather_files(traj_folder)
+
+        #clear cache if requested
+        if (cache and clear_cache):
+            self.C.clear_cache()
+
+        return 
+    
+    def make(self):
+        #process all the files to construct the MultiMSM and return it
+
+        if not self.C.is_finalized():
+            self.__process_files(self.__cache, self.__num_files, self.__verbose)
+
+        return self.C
+    
+    def remake(self, new_discretization, new_lag = None):
+        #remake the MultiMSM using a new discretization and potentially new lag
+
+        self.__discretization = new_discretization
+        if new_lag is not None:
+            self.__lag = new_lag
+
+        self.C = Collection(self.__discretization, self.__macrostate_map, 
+                            parameters=self.__params, lag=self.__lag)
+        
+        self.__process_files(self.__cache, self.__num_files, self.__verbose)
+
+        return self.C
+
+
+    def __gather_files(self, traj_folder):
+        #walk through subdirectories of the given folder to find all .cl files
+
+        #check that the folder exists
+        if (not os.path.exists(traj_folder)):
+            raise("Specified folder could not be found")
+
+        #init storage for file paths
+        self.__file_paths = []
+
+        #loop over all subdirs and collect all the .cl files
+        for subdir, dirs, files in os.walk(traj_folder):
+            for file in files:
+
+                if file.endswith('.cl'):
+                    self.__file_paths.append(os.path.join(subdir, file))
+
+        #sort the list of filenames and return them
+        self.__file_paths.sort()
+        return
+    
+    def __process_files(self, cache, num_files, verbose):
+        #loop over given files, adding counts to the collection. 
+
+        #check if a reduced number of files is requested
+        if num_files is None:
+            num_files = len(self.__file_paths)
+
+        #loop over requested number of files
+        for next_file in self.__file_paths[0:num_files]:
+
+            if (verbose):
+                print("Adding transitions from {}".format(next_file))
+                a = time.time()
+
+            #add all transitions from current file, cache if requested
+            self.C.process_cluster_file(next_file, cache=cache)
+
+            if (verbose):
+                b = time.time()
+                print("Analyzing the file took {} seconds".format(b-a))
+                print()
+            
+        #finalize the counting and return
+        self.C.finalize_counts()
+        return
+
+
+
 
 class Collection:
+    '''
+    The Collection class represents a MultiMSM, a collection of MSMs at different 
+    values of the monomer fraction of a system. 
 
-    def __init__(self, discretization, macrostate_map, parameters = {}, lag = 1):
+    Takes in a discretization of the interval [0,1] that represents all possible 
+    monomer fractions, and a mapping from a State object to an integer index. 
+
+    Contains methods for processing .cl files, which will add all observed transitions
+    between the discrete states to the appropriate MSMs, depending on the value of the 
+    monomer fraction for which the transition occurred. 
+
+    The counts must be finalized in order to get a probability transition matrix
+    representation of each MSM. The class also contains methods for solving the 
+    forward and backward Kolmogorov equations for the given collection of MSMs and 
+    discretization bins. 
+    
+    '''
+
+    def __init__(self, discretization, macrostate_map, parameters = {}, lag = 1,
+                 verbose = False):
 
         #store the discretization and get number of discretized elements
         if not isinstance(discretization, Discretization):
@@ -52,6 +183,8 @@ class Collection:
         #store the parameters for this MSM - key-value pairs in dict
         self.__parameters     = parameters
         self.__lag            = lag
+
+        self.__verbose        = verbose
 
         #create dict to associate each element to an MSM. init with empty MSMs
         self.__MSM_map        = dict()
@@ -339,6 +472,10 @@ class Collection:
 
         return
     
+    def is_finalized(self):
+
+        return self.__counts_finalized
+    
     def get_frac_freqs(self):
 
         return self.__frac_freqs
@@ -378,14 +515,16 @@ class Collection:
 
         #check for distribution and set default if none
         if p0 is None:
-            init_dist = np.zeros(self.__num_states, dtype=float)
-            init_dist[self.__monomer_index] = 1.0
+            init_dist = self.__FKE_monomer_start()
             print("Warning: Initial distribution not specified. Defaulting to 100% monomer")
+        elif p0 == "monomer_start":
+            init_dist = self.__FKE_monomer_start()
         else:
             init_dist = p0
 
         #solve FKE and return solution
-        print("Solving FKE with supplied initial distribution and T={} lags.".format(T)) 
+        if self.__verbose:
+            print("Solving FKE with supplied initial distribution and T={} lags.".format(T)) 
         self.solve_FKE(init_dist, T)
         return self.__fke_soln
 
@@ -489,14 +628,22 @@ class Collection:
         for t in range(T):
 
             #get the appropriate transition matrix and perform a step
-            TM         = self.get_transition_matrix(self.__msm_indices[T-1-i])
-            f[:,T-1-i] = TM * F[:,T-i]
+            TM         = self.get_transition_matrix(self.__msm_indices[T-1-t])
+            f[:,T-1-t] = TM * f[:,T-t]
 
         #store the calculated soln
         self.__bke_soln = f
 
         #return the solution? 
         return
+    
+    def __FKE_monomer_start(self):
+        #return an initial distribution corresponding to 100% subunits as monomers
+
+        init_dist = np.zeros(self.__num_states, dtype=float)
+        init_dist[self.__monomer_index] = 1.0
+
+        return init_dist
 
     def __fix_zero_one(self, mon_frac):
         #if the monomer fraction is exactly zero or 1, give it a slight push
