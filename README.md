@@ -1,16 +1,18 @@
 # MultiMSM
 
-This repository contains a framework for creating a collection of Markov State Models (MSMs) by leveraging data obtained at different values of certain parameters. 
+This repository contains a framework for creating a collection of Markov State Models (MSMs) for self-assembling systems with a finite pool of subunits. This is done by leveraging transition data obtained at different values of the fraction of monomers currently in the system.  
 
-For example, my application is to construct an MSM that models the dynamics of a self-assembling system with a finite pool of subunits. The rates of forming various structures depend on the concentration of free monomers, so transition events are augmented with the monomer fraction present when they occur. The user may provide their own discretization of their variable parameter (monomer fraction for me), and this library will construct multiple MSMs, one for each intrval of the discretization. 
+The rates of forming various structures depend on the concentration of free monomers, so transition events are augmented with the monomer fraction present when they occur. The user provides some discretization of the interval [0,1] for the monomer fraction, and the library will construct an MSM on each subinterval using transitions that occured for monomer fractions within those bounds. The library also contains optimizers to choose this discretization for you, by best reconstructing the average yields of a target state from your sampling data. 
 
-Using the monomer fraction, one can solve the forward and backward Kolmogorov equations for this collection of MSMs. We can also aggregate all of the data into a single MSM to study the average effective dynamics and compare to the concentration dependent dynamics. 
+Using the MSM estimated monomer fraction dynamics, one can solve the forward and backward Kolmogorov equations for this collection of MSMs. We can also aggregate all of the data into a single MSM to study the average effective dynamics and compare to the concentration dependent dynamics. 
 
-Will also contain methods for processing of sampling data to efficiently compare sampled values to the MSM estimates. 
+Also contains methods for processing of sampling data to efficiently compare sampled values to the MSM estimates. 
 
 
 #Package Install Instructions (For Now)
 To be able to import this code as a package outside of the source directory, I have been using a python setup file to make a pip package and install it. It is not published yet (maybe I will do this eventually, after finalizing and documenting some things), but this works for now. 
+
+Note: this code is intended to be run on systems that are simulated in HOOMD and analyzed using the clustering from my analysis library, found here: https://github.com/onehalfatsquared/SAASH
 
 If you are installing to a local machine, first clone into the repo. From the highest MultiMSM directory (that contains setup.py), run the following commands:
 
