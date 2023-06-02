@@ -9,7 +9,7 @@ Using the MSM estimated monomer fraction dynamics, one can solve the forward and
 Also contains methods for processing of sampling data to efficiently compare sampled values to the MSM estimates. 
 
 
-#Package Install Instructions (For Now)
+# Package Install Instructions (For Now)
 To be able to import this code as a package outside of the source directory, I have been using a python setup file to make a pip package and install it. It is not published yet (maybe I will do this eventually, after finalizing and documenting some things), but this works for now. 
 
 Note: this code is intended to be run on systems that are simulated in HOOMD and analyzed using the clustering from my analysis library, found here: https://github.com/onehalfatsquared/SAASH
