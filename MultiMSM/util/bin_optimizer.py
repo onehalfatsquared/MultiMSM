@@ -126,6 +126,127 @@ class BinOptimizer:
         return
     
 
+class BinOptimizerSequential(BinOptimizer):
+    '''
+    Performs bin optimization by iterating over the dividier positions one at a 
+    time, and choosing the optimal placement of that divider with the others held
+    fixed, by sampling values between the surrounding dividers. 
+
+    Can set the number of sweeps, defined as optimizing each bin once sequentially. 
+    Can set the number of points to sample in each interval. We force this number to 
+    be even, else the midpoint would re-sample the same configuration. 
+    '''
+
+    def __init__(self, num_bins, lag, MM, traj_folder, initial_guess = None,
+                 fixed_indices = None,
+                 num_sweeps = 1, samples_per_div = 4):
+        
+        #call the parent init
+        super().__init__(num_bins, lag, MM, traj_folder, initial_guess, fixed_indices)
+
+        #variables for the optimization
+        self._samples_per_div = samples_per_div + (samples_per_div%2)
+        self._num_sweeps      = num_sweeps
+        
+        #derived variables
+        self._num_dividers = self._num_bins - 1
+
+        #construct the model builder object and create the initial model
+        self._model_builder = MultiMSMBuilder(self._initial_guess, self._MM, 
+                                              self._traj_folder, self._lag)
+        self._model0 = self._model_builder.make()
+        self._obj0   = self._eval_obj(self._model0)
+
+        self._current_guess = self._initial_guess
+
+        return
+    
+    def run_optimization(self, verbose = False):
+        #perform sweeps over all of the dividers sequentially
+        
+        for sweep in range(self._num_sweeps):
+            
+            #init a flag to check if this sweep actually changed anything
+            self._modification_flag = False
+
+            #loop over each divider
+            for divider in range(self._num_dividers):
+
+                #get equally spaced test points to potentially replace this divider
+                test_points = self._get_test_points(divider)
+
+                #sample each point and see if it improves the objective function
+                for point in test_points:
+
+                    self._test_new_divider(divider, point, verbose)
+                    
+            #print information about the last sweep
+            if verbose:
+                print("Sweep #{}, current obj fn {}.".format(sweep+1, self._obj0))
+
+            #if no sweep was made this update, exit sweep loop
+            if not self._modification_flag:
+                break
+
+        #print info on overall optimization 
+        print("Best bin placements", self._best_disc.get_cutoffs())
+        self._plot_optimal_MSM_model()
+
+        return
+    
+    def _get_test_points(self, divider):
+        #use the current cutoffs to generate uniformly separated points between
+        #the current divider's neighbors
+        #start with the rightmost interior divider and work left
+
+        #get the current values of the cutoffs
+        cutoffs = self._current_guess.get_cutoffs()
+
+        #get the location of the left and right neighboring dividers
+        right_div = cutoffs[-1-divider]
+        left_div  = cutoffs[-1-divider-2]
+
+        #place samples_per_div points between these cutoffs to sample
+        test_points = np.linspace(left_div, right_div, self._samples_per_div+2)
+        test_points = test_points[1:(1+self._samples_per_div)]
+
+        return test_points
+    
+    def _test_new_divider(self, divider, point, verbose):
+        #see if the new divider location, point, improves the objective function
+        #if so, update the variables keeping track of the best
+
+        #create new discretization with these cutoffs
+        new_cutoffs = self._current_guess.get_cutoffs().copy()
+        new_cutoffs[-1-divider-1] = point
+        new_guess = Discretization(new_cutoffs)
+
+        #make and evaluate a new model
+        new_model = self._model_builder.remake(new_guess)
+        new_obj   = self._eval_obj(new_model)
+
+        #check if new model improves upon old
+        if new_obj < self._obj0:
+
+            if verbose:
+                print("Divider #{} changed to {}. Old obj {}, new obj {}.".format(divider, point, self._obj0, new_obj))
+
+            #overwrite the previous guess 
+            self._obj0 = new_obj
+            self._current_guess = new_guess
+
+            #keep track of best objfn, discretization, and model
+            self._best_obj  = self._obj0
+            self._best_disc = self._current_guess
+            self._best_model= new_model
+
+            #update the modification flag to denote a change was made to the discr.
+            self._modification_flag = True
+
+        return
+
+    
+
 class BinOptimizerMC(BinOptimizer):
 
     def __init__(self, num_bins, lag, MM, traj_folder, initial_guess = None,
