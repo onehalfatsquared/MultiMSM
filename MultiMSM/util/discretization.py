@@ -85,13 +85,18 @@ class Discretization:
             err_msg  = "The supplied discretization does not start at 0.\n"
             raise RuntimeError(err_msg)
 
-        if abs(cutoffs[0]) > tol:
-            err_msg  = "The supplied discretization does not start at 0.\n"
+        if abs(1-cutoffs[-1]) > tol:
+            err_msg  = "The supplied discretization does not end at 1.\n"
             raise RuntimeError(err_msg)
 
-        if cutoffs != sorted(cutoffs):
-            err_msg  = "The discretization is not sorted.\n"
-            raise RuntimeError(err_msg)
+        #check that the cutoffs are properly sorted
+        sorted_cut = sorted(cutoffs)
+        for i in range(len(cutoffs)):
+            if abs(cutoffs[i]-sorted_cut[i]) > tol:
+                err_msg  = "The discretization is not sorted.\n"
+                raise RuntimeError(err_msg)
+            
+        return
 
     def __len__(self):
 
