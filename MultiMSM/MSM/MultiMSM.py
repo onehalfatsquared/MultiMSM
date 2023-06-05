@@ -63,6 +63,9 @@ class MultiMSMBuilder:
         #gather the relevant cl files to construct the MultiMSM, all of them
         self.__gather_files(traj_folder)
 
+        #prepare a dict to store num_files for each run type
+        self.__prepare_num_files(num_files)
+
         #clear cache if requested
         if (cache and clear_cache):
             self.C.clear_cache()
@@ -95,48 +98,134 @@ class MultiMSMBuilder:
     def __gather_files(self, traj_folder):
         #walk through subdirectories of the given folder to find all .cl files
 
-        #check that the folder exists
+        #check that the supplied traj folder exists
         if (not os.path.exists(traj_folder)):
             raise("Specified folder could not be found")
 
-        #init storage for file paths
-        self.__file_paths = []
+        #init storage for file paths of different run types
+        self.__base_paths  = []
+        self.__short_paths = []
+        self.__dis_paths   = []
 
-        #loop over all subdirs and collect all the .cl files
-        for subdir, dirs, files in os.walk(traj_folder):
-            for file in files:
+        #get all the base paths
+        self.__base_paths = self.__walk_directory(traj_folder)
 
+        #check for existence of short and diss folders and gather from them
+        if (os.path.exists(traj_folder+"short/")):
+            self.__short_paths = self.__walk_directory(traj_folder+"short/")
+
+        if (os.path.exists(traj_folder+"dis/")):
+            self.__dis_paths = self.__walk_directory(traj_folder+"dis/")
+
+        self.__path_map = {"base":self.__base_paths, "short":self.__short_paths,
+                           "dis": self.__dis_paths}
+        
+        return
+
+    def __walk_directory(self, dir_path):
+        #walk through each subdirectory of the given path and accumulate .cl files
+
+        #init list for storing paths
+        file_paths = []
+
+        #get all the valid 1 level deep subdirectories and loop over them
+        subdirs = [x for x in os.listdir(dir_path) if os.path.isdir(dir_path+x)]
+        for subdir in subdirs:
+
+            #check files in the subdirectory for the .cl extension, add those
+            for file in os.listdir(dir_path+subdir):
+                
                 if file.endswith('.cl'):
-                    self.__file_paths.append(os.path.join(subdir, file))
+                    file_paths.append(os.path.join(dir_path+subdir, file))
+
 
         #sort the list of filenames and return them
-        self.__file_paths.sort()
+        file_paths.sort()
+
+        return file_paths
+
+
+    def __prepare_num_files(self, num_files):
+        #tell the constructor how many of each type of file to use
+        #accepts None, an integer (# base paths), or a dict
+
+        self.__file_counter = defaultdict(int)
+
+        #case 1 - None -> use all files
+        if num_files is None:
+            self.__file_counter['base']  = len(self.__base_paths)
+            self.__file_counter['short'] = len(self.__short_paths)
+            self.__file_counter['dis']   = len(self.__dis_paths)
+            return
+
+        #case 2 - int -> use specified number of base files, none of the others
+        if isinstance(num_files, int):
+            self.__file_counter['base']  = min(len(self.__base_paths), num_files)
+            self.__file_counter['short'] = 0
+            self.__file_counter['dis']   = 0
+            return
+
+        #case 3 - dict -> copy values, ensuring they are valid
+        if isinstance(num_files, dict):
+            self.__file_counter['base']  = 0
+            self.__file_counter['short'] = 0
+            self.__file_counter['dis']   = 0
+
+            for k,v in num_files.items():
+                self.__file_counter[k] = min(v, len(self.__path_map[k]))
+
+            if len(self.__file_counter.keys()) > 3:
+                err_msg = "The supplied file count dict has invalid keys. "
+                err_msg+= "It only supports 'base', 'short', and 'dis'."
+                raise RuntimeError(err_msg)
+
+            return
+
+        #if we reach here, an invalid data type was passed for num_files
+        err_msg = "Type {} for num_files is not supported. Please supply None, "
+        err_msg+= "an int, or a dict with supported keys. "
+        raise TypeError(err_msg)
+
         return
     
     def __process_files(self, cache, num_files, verbose):
         #loop over given files, adding counts to the collection. 
 
-        #check if a reduced number of files is requested
-        if num_files is None:
-            num_files = len(self.__file_paths)
+        if verbose:
+            print("\nProcessing files for MSM construction...",end=' ')
+
+        a = time.time()
+
+        #do processing of each type of file
+        self.__do_processing(self.__base_paths,  self.__file_counter['base'],  cache)
+        self.__do_processing(self.__short_paths, self.__file_counter['short'], cache)
+        self.__do_processing(self.__dis_paths,   self.__file_counter['dis'],   cache)
+
+        b = time.time()
+            
+        #finalize the counting and return
+        self.C.finalize_counts()
+
+        #print optional message detailing number of files used per type
+        if verbose:
+            num_paths = sum(self.__file_counter.values())
+            print("Processing complete.")
+            print("Base trajectories processed: {}".format(self.__file_counter['base']))
+            print("Short trajectories processed: {}".format(self.__file_counter['short']))
+            print("Disassembly trajectories processed: {}".format(self.__file_counter['dis']))
+            print("Processing took {}s. Average {}s per file\n".format(b-a, (b-a)/num_paths))
+        
+        return
+
+    def __do_processing(self, paths, counts, cache):
+        #actually do the file processing
 
         #loop over requested number of files
-        for next_file in self.__file_paths[0:num_files]:
-
-            if (verbose):
-                print("Adding transitions from {}".format(next_file))
-                a = time.time()
+        for next_file in paths[0:counts]:
 
             #add all transitions from current file, cache if requested
             self.C.process_cluster_file(next_file, cache=cache)
 
-            if (verbose):
-                b = time.time()
-                print("Analyzing the file took {} seconds".format(b-a))
-                print()
-            
-        #finalize the counting and return
-        self.C.finalize_counts()
         return
 
 
