@@ -18,13 +18,14 @@ import matplotlib.pyplot as plt
 class BinOptimizer:
 
     def __init__(self, num_bins, lag, MM, traj_folder, initial_guess = None,
-                 fixed_indices = None):
+                 fixed_indices = None, obj_norm = 2):
 
         #set user inputs
         self._num_bins    = num_bins
         self._lag         = lag
         self._MM          = MM
         self._traj_folder = traj_folder
+        self._obj_norm    = obj_norm
 
         #check for initial guess and right type
         if initial_guess is not None:
@@ -106,7 +107,7 @@ class BinOptimizer:
             else:
                 rel_error[i] = (abs_error)
 
-        return np.linalg.norm(rel_error,2)
+        return np.linalg.norm(rel_error, self._obj_norm)
     
     def _plot_optimal_MSM_model(self):
         #plot the soln to FKE with best bin model and compare to sampling
@@ -138,11 +139,12 @@ class BinOptimizerSequential(BinOptimizer):
     '''
 
     def __init__(self, num_bins, lag, MM, traj_folder, initial_guess = None,
-                 fixed_indices = None,
+                 fixed_indices = None, obj_norm = 2,
                  num_sweeps = 1, samples_per_div = 4):
         
         #call the parent init
-        super().__init__(num_bins, lag, MM, traj_folder, initial_guess, fixed_indices)
+        super().__init__(num_bins, lag, MM, traj_folder, initial_guess, fixed_indices, 
+                         obj_norm)
 
         #variables for the optimization
         self._samples_per_div = samples_per_div + (samples_per_div%2)
@@ -187,6 +189,11 @@ class BinOptimizerSequential(BinOptimizer):
             #if no sweep was made this update, exit sweep loop
             if not self._modification_flag:
                 break
+
+        #set current guess as best in case where the placements can't be improved
+        if self._best_disc is None:
+            self._best_disc  = self._current_guess
+            self._best_model = self._model0
 
         #print info on overall optimization 
         print("Best bin placements", self._best_disc.get_cutoffs())

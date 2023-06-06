@@ -234,11 +234,17 @@ class MacrostateMap:
 
     def state_to_index(self, state):
 
-        return self.__toIndex[state]
+        if state in self.__toIndex:
+            return self.__toIndex[state]
+        
+        return -1
 
     def index_to_state(self, index):
 
-        return self.__toState[index]
+        if index < self.get_num_states():
+            return self.__toState[index]
+        
+        return None
 
     def get_num_states(self):
 
@@ -252,7 +258,7 @@ class MacrostateMap:
 
         return self.__monomer_index
 
-    def filter_by_size(self, sizes):
+    def filter_by_size(self, sizes, verbose = False):
         #return all indices for states with size in sizes
 
         #if only an int is given, put in list so code is general
@@ -267,5 +273,9 @@ class MacrostateMap:
 
             indices = [self.__toIndex[state] for state in self.__toIndex.keys() if state.get_size() == size ]
             output_indices += indices
+            
+            if verbose:
+                for index in indices:
+                    print("Index {}, {}".format(index, self.__toState[index]))
 
         return output_indices
