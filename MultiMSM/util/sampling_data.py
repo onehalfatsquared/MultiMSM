@@ -207,7 +207,7 @@ class ClusterSizeData:
 
 
     def __del__(self):
-        #if deleting, and the map has been updated without being saved, save it. 
+        #if deleting, and the object has been updated without being saved, save it. 
 
         if self.__was_loaded and self.__been_updated:
             self.__save()
@@ -265,9 +265,9 @@ class ClusterSizeData:
         return
 
     def __process_files(self, data_folder):
-        #loop over all .cl files in the folder, do analysis
+        #loop over all .sizes files in the folder, do analysis
 
-        #get a sorted list of all the .cl files
+        #get a sorted list of all the .sizes files
         all_files = glob.glob(data_folder + '/**/*.sizes', recursive=True)
         all_files.sort()
         if self.__verbose:
@@ -392,4 +392,133 @@ class ClusterSizeData:
 
 
 
+class MicrostateData:
+    '''
+    This class looks at all .cl files in the given folder and filters the cluster 
+    trajectories according to some criteria defining the user's target state. These can 
+    be summed per .cl file to give the number of target structures as a function of 
+    time. This is then averaged over all .cl files. 
 
+    The microstate can be defined in two ways. 
+    1) By supplying a dictionary of conditions. Each key must be an observable that
+    was computed when doing the cluster analysis.
+    2) By suppling a State object that represents the desired microstate. 
+    '''
+
+    def __init__(self, data_folder, microstate, recompute = False, verbose=False):
+
+        #set location for storage of this class based on name of data folder
+        self.__set_storage_info(data_folder)
+
+        #unless recompute, try to load existing class object
+        if not recompute:
+            try:
+
+                self.__load(self.__storage_location)
+
+            except:
+
+                print("Could not load object at {}. Computing from scratch.".format(self.__storage_location))
+                self.__init_log()
+
+        else:
+
+            self.__init_log()
+
+        self.__verbose = verbose
+
+        #process the files in the data folder
+        self.__process_files(data_folder)
+
+        return
+    
+    def __del__(self):
+        #if deleting, and the object has been updated without being saved, save it. 
+
+        if self.__was_loaded and self.__been_updated:
+            self.__save()
+
+        return
+
+
+    def __save(self):
+
+        with open(self.__storage_location,'wb') as outfile:
+            pickle.dump(self, outfile)
+            if self.__verbose:
+                print("Microstate Data saved to {}".format(self.__storage_location))
+
+        return
+
+    def __load(self, filepath):
+
+        with open(filepath,'rb') as infile:
+            self.__dict__ = pickle.load(infile).__dict__
+            self.__been_updated = False
+            self.__was_loaded   = True
+            if self.__verbose:
+                print("Microstate Data loaded from {}".format(self.__storage_location))
+
+        return
+    
+    def __name_microstate(self, microstate):
+        #get a name to uniquely identify the microstate - sort dict keys and use values
+
+        #TODO: 
+
+
+        return 
+
+    def __set_storage_info(self, data_folder):
+
+        #check if the directories /data/ and /data/sampling/ exist
+        if not os.path.isdir(data_folder+"/data/"):
+            os.makedirs(data_folder+"/data/")
+
+        if not os.path.isdir(data_folder+"/data/sampling/"):
+            os.makedirs(data_folder+"/data/sampling/")
+
+        #grab the parameter identifiers from the data folder and set storage loc
+        self.__storage_location  = data_folder+"data/sampling/"
+        self.__storage_location += "cache.csd"
+
+        return
+
+    def __init_log(self):
+        #make a new processed file log
+
+        self.__been_updated = True
+        self.__was_loaded   = False
+        self.__processed    = []
+        self.__distribution = SizeDistribution()
+        self.__times_log    = []     
+
+        #init variables to store the returned distributions
+        self.__size_distribution = None
+        self.__mass_weighted_sd  = None
+        return
+
+    def __process_files(self, data_folder):
+        #loop over all .cl files in the folder, do analysis
+
+        #get a sorted list of all the .cl files
+        all_files = glob.glob(data_folder + '/**/*.cl', recursive=True)
+        all_files.sort()
+        if self.__verbose:
+            print("Found {} '.sizes' files in {}. Processing new files...".format(len(all_files), data_folder))
+
+        #check if each file is already processed, if not, process it
+        for traj_file in all_files:
+
+            if traj_file not in self.__processed:
+                if self.__verbose:
+                    print("Processing new file {}".format(traj_file))
+                self.__process(traj_file)
+                self.__processed.append(traj_file)
+                self.__been_updated = True
+
+        #save if update was performed 
+        if self.__been_updated:
+            self.__save()
+
+        return
