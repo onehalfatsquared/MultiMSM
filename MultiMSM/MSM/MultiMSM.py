@@ -687,6 +687,80 @@ class Collection:
 
         #return the solution as well as storing? maybe a copy?
         return
+    
+    def solve_FKE_smooth(self, p0 = None, T = 100, width = 0.02):
+        #solve FKE using a smoothed version of the transition matrix near discretization
+        #boundaries. linear interpolant. 
+
+        if p0 is None:
+            init_dist = self.__FKE_monomer_start()
+            print("Warning: Initial distribution not specified. Defaulting to 100% monomer")
+        elif p0 == "monomer_start":
+            init_dist = self.__FKE_monomer_start()
+        else:
+            init_dist = p0
+
+        p0 = init_dist
+
+        #first check the distribution is an nparray with the correct dimensions
+        if type(p0) is not np.ndarray:
+            p0 = np.array(p0, dtype=float)
+
+        if len(p0) != self.__num_states:
+            err_msg =  "The length of the supplied initial distribution ({})".format(len(p0))
+            err_msg += " does not match the number of states ({})".format(self.__num_states)
+            raise ValueError(err_msg)
+
+        #init an array to store the time dependent solution, as well as MSM indices
+        p          = np.zeros((T+1, self.__num_states), dtype=float)
+        indices    = np.zeros(T+1, dtype=int)
+        p[0, :]    = p0
+        mon_frac0  = p0[self.__monomer_index]
+        indices[0] = self.get_msm_index(self.__fix_zero_one(mon_frac0))
+
+        current_mon_frac = mon_frac0
+        inner_cuts = self.__discretization.get_cutoffs()[1:-1]
+
+        #solve the FKE, grabbing the relevant transition matrix each iteration
+        for t in range(T):
+
+            #set the transition matrix based on the current mon frac
+            TM = self.get_transition_matrix(indices[t])
+
+            #check if we are within the width of a boundary
+            dists = np.array(np.abs(inner_cuts-current_mon_frac))
+            near_bdy = np.where(dists < width)[0]
+            if len(near_bdy) > 0:
+                near_bdy = near_bdy[0]
+                rightTM = self.get_transition_matrix(near_bdy+2)
+                leftTM  = self.get_transition_matrix(near_bdy+1)
+
+                #compute alpha using left and right endpoints of interval
+                a = inner_cuts[near_bdy] - width
+                b = inner_cuts[near_bdy] + width
+                alpha = (current_mon_frac - a) / (b-a)
+
+                #construct the alpha weighted LC of the transition matrices
+
+            print(near_bdy, indices[t])
+
+
+
+
+            #update the probabilities 1 step in future
+            p[t+1, :] = p[t, :] * TM
+
+            #get the index for the next transition matrix from monomer frac
+            current_mon_frac = p[t+1,self.__monomer_index]
+            indices[t+1] = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
+
+        #store the solution and indices
+        self.__fke_soln    = p
+        self.__msm_indices = indices
+
+        #return the solution as well as storing? maybe a copy?
+        return self.__fke_soln
+
 
     def solve_BKE(self, fN, T):
         '''
