@@ -27,6 +27,8 @@ import glob
 
 import numpy as np
 
+import SAASH.util.state
+
 import pickle
 
 from enum import Enum
@@ -268,7 +270,7 @@ class ClusterSizeData:
         #loop over all .sizes files in the folder, do analysis
 
         #get a sorted list of all the .sizes files
-        all_files = glob.glob(data_folder + '/**/*.sizes', recursive=True)
+        all_files = glob.glob(data_folder + '/*/*.sizes', recursive=True)
         all_files.sort()
         if self.__verbose:
             print("Found {} '.sizes' files in {}. Processing new files...".format(len(all_files), data_folder))
@@ -322,7 +324,7 @@ class ClusterSizeData:
 
         return
 
-    def get_normalized_distribution(self, mass_weighted = False):
+    def get_normalized_distribution(self, mass_weighted = True):
         #compute a normalized probability distribution at each frame 
 
         if len(self.__processed) == 0:
@@ -355,7 +357,7 @@ class ClusterSizeData:
         max_time    = np.max(self.__times_log)
         num_samples = np.zeros(max_time, dtype=int)
 
-        #fill the numbe rof samples array using elements of times_log
+        #fill the number of samples array using elements of times_log
         for final_time in self.__times_log:
 
             num_samples[:final_time] += 1
@@ -397,7 +399,7 @@ class MicrostateData:
     This class looks at all .cl files in the given folder and filters the cluster 
     trajectories according to some criteria defining the user's target state. These can 
     be summed per .cl file to give the number of target structures as a function of 
-    time. This is then averaged over all .cl files. 
+    time. This is then averaged over all .cl files and mass weighted to produce yields. 
 
     The microstate can be defined in two ways. 
     1) By supplying a dictionary of conditions. Each key must be an observable that
@@ -406,6 +408,9 @@ class MicrostateData:
     '''
 
     def __init__(self, data_folder, microstate, recompute = False, verbose=False):
+
+        #parse and name the microstate being supplied 
+        self.__parse_microstate(microstate)
 
         #set location for storage of this class based on name of data folder
         self.__set_storage_info(data_folder)
@@ -440,7 +445,6 @@ class MicrostateData:
 
         return
 
-
     def __save(self):
 
         with open(self.__storage_location,'wb') as outfile:
@@ -461,11 +465,51 @@ class MicrostateData:
 
         return
     
-    def __name_microstate(self, microstate):
+    
+    def __parse_microstate(self, microstate):
+        #determine which kind of microstate was supplied, construct condition from it
+        #construct a unique name for this state and extract its size for weighting
+
+        if isinstance(microstate, SAASH.util.state.State):
+
+            self.__conditions = microstate.get_all_properties()
+
+        elif isinstance(microstate, dict):
+
+            self.__conditions = microstate
+
+        else:
+
+            err_msg = "The supplied microstate must be either a SAASH.State object "
+            err_msg+= "or a dictionary of obervables and values. You supplied a "
+            err_msg+= "{} object".format(type(microstate))
+            raise TypeError(err_msg)
+        
+        #get a name for the microstate for caching using condition values
+        self.__name_microstate()
+
+        #store the size of the microstate
+        self.__ms_size = self.__conditions['num_bodies']
+
+        return
+    
+    def __name_microstate(self):
         #get a name to uniquely identify the microstate - sort dict keys and use values
 
-        #TODO: 
+        #conditions can be a dict containing dicts. flatten it
+        flat_dict = flatten_dict(self.__conditions)
 
+        #sort the flattened dict by key
+        keys = list(flat_dict.keys())
+        keys.sort()
+
+        #grab the values in sorted order, construct string
+        self.__ms_name = "State_"
+        for key in keys:
+            self.__ms_name += (str(flat_dict[key])+"_")
+
+        #strip off trailing underscore
+        self.__ms_name = self.__ms_name.rstrip("_")
 
         return 
 
@@ -480,7 +524,7 @@ class MicrostateData:
 
         #grab the parameter identifiers from the data folder and set storage loc
         self.__storage_location  = data_folder+"data/sampling/"
-        self.__storage_location += "cache.csd"
+        self.__storage_location += "cache_" + self.__ms_name + ".msd"
 
         return
 
@@ -489,32 +533,34 @@ class MicrostateData:
 
         self.__been_updated = True
         self.__was_loaded   = False
-        self.__processed    = []
-        self.__distribution = SizeDistribution()
-        self.__times_log    = []     
+        self.__processed    = [] 
 
-        #init variables to store the returned distributions
-        self.__size_distribution = None
-        self.__mass_weighted_sd  = None
+        #init variables to store the returned time series
+        self.__microstate_counts = None
+        self.__time_series       = None
+        self.__mass_weighted_time_series  = None
         return
 
     def __process_files(self, data_folder):
         #loop over all .cl files in the folder, do analysis
 
         #get a sorted list of all the .cl files
-        all_files = glob.glob(data_folder + '/**/*.cl', recursive=True)
+        all_files = glob.glob(data_folder + '/*/*.cl', recursive=True)
         all_files.sort()
         if self.__verbose:
-            print("Found {} '.sizes' files in {}. Processing new files...".format(len(all_files), data_folder))
+            print("Found {} '.cl' files in {}. Processing new files...".format(len(all_files), data_folder))
+
+        #init the number of subunits to None to be set when processing first file
+        self.__num_subunits = None
 
         #check if each file is already processed, if not, process it
-        for traj_file in all_files:
+        for cluster_file in all_files:
 
-            if traj_file not in self.__processed:
+            if cluster_file not in self.__processed:
                 if self.__verbose:
-                    print("Processing new file {}".format(traj_file))
-                self.__process(traj_file)
-                self.__processed.append(traj_file)
+                    print("Processing new file {}".format(cluster_file))
+                self.__process(cluster_file)
+                self.__processed.append(cluster_file)
                 self.__been_updated = True
 
         #save if update was performed 
@@ -522,3 +568,76 @@ class MicrostateData:
             self.__save()
 
         return
+    
+    def __process(self, cluster_file):
+        #extract the cluster info objects, filter them w/ conditions, sum
+
+        #get the number of subunits from the simulation
+        #open the file with pickle
+        with open(cluster_file, 'rb') as f:
+            sim_results = pickle.load(f)
+
+        #set number of subunits if not set yet
+        if self.__num_subunits is None:
+            count = len(sim_results.monomer_ids[0])
+            frac  = sim_results.monomer_frac[0]
+            self.__num_subunits = int(count / frac)
+
+        #extract the trajectories
+        cluster_info = sim_results.cluster_info
+
+        #loop over each trajectory, get a filtered boolean time series, add them
+        for traj_num in range(len(cluster_info)):
+
+            traj = cluster_info[traj_num]
+
+            if traj_num == 0:
+                BTS = traj.get_filtered_time_series(self.__conditions)
+            else:
+                BTS+= traj.get_filtered_time_series(self.__conditions)
+
+        #add BTS to the total number of counts
+        if self.__microstate_counts is None:
+            self.__microstate_counts  = BTS
+        else:
+            self.__microstate_counts += BTS
+
+        return
+    
+    def get_time_series(self, mass_weighted = True):
+        #compute a time series of yield of the supplied microstate
+
+        if len(self.__processed) == 0:
+            return None
+
+        #if an update has occured, recompute normalized distributions
+        if self.__been_updated or self.__time_series is None:
+            
+            #non mass-weighted
+            self.__time_series = self.__microstate_counts / len(self.__processed)
+
+            #mass-weighted
+            scale_factor = self.__ms_size / self.__num_subunits
+            self.__mass_weighted_time_series  = self.__time_series * scale_factor
+
+
+        #return the corresponding distribution
+        if mass_weighted:
+            return self.__mass_weighted_time_series
+        else:
+            return self.__time_series
+
+
+
+
+def flatten_dict(dd, separator='_', prefix=''):
+    #recursively flatten a dict that may contain nested dicts
+
+    res = {}
+    for key, value in dd.items():
+        if isinstance(value, dict):
+            res.update(flatten_dict(value, separator, prefix + key + separator))
+        else:
+            res[prefix + key] = value
+
+    return res

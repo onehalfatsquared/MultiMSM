@@ -663,11 +663,16 @@ class Collection:
         mon_frac0  = p0[self.__monomer_index]
         indices[0] = self.get_msm_index(self.__fix_zero_one(mon_frac0))
 
+        current_mon_frac = mon_frac0
+
         #solve the FKE, grabbing the relevant transition matrix each iteration
         for t in range(T):
 
             #get the transition matrix for the current time step
             TM = self.get_transition_matrix(indices[t])
+
+            # if indices[t] == 8 and current_mon_frac < 0.85:
+            #     TM = (0.8*self.get_transition_matrix(8) + 0.2*self.get_transition_matrix(7))
 
             #update the probabilities 1 step in future
             p[t+1, :] = p[t, :] * TM
