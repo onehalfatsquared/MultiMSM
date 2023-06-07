@@ -534,6 +534,7 @@ class MicrostateData:
         self.__been_updated = True
         self.__was_loaded   = False
         self.__processed    = [] 
+        self.__num_subunits = None
 
         #init variables to store the returned time series
         self.__microstate_counts = None
@@ -549,9 +550,6 @@ class MicrostateData:
         all_files.sort()
         if self.__verbose:
             print("Found {} '.cl' files in {}. Processing new files...".format(len(all_files), data_folder))
-
-        #init the number of subunits to None to be set when processing first file
-        self.__num_subunits = None
 
         #check if each file is already processed, if not, process it
         for cluster_file in all_files:
