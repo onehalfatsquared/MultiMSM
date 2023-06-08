@@ -87,7 +87,8 @@ class BinOptimizer:
         #solve the FKE for the current model 
 
         final_time   = round(self._num_lags/self._lag)
-        soln         = model.get_FKE(T=final_time, p0="monomer_start")
+        # soln         = model.get_FKE(T=final_time, p0="monomer_start")
+        soln         = model.solve_FKE_smooth(T=final_time, p0="monomer_start", frac=0.25)
         target_prob  = soln[:,self._target_indices].sum(1)
 
         return target_prob

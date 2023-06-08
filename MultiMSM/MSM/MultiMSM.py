@@ -671,9 +671,6 @@ class Collection:
             #get the transition matrix for the current time step
             TM = self.get_transition_matrix(indices[t])
 
-            # if indices[t] == 8 and current_mon_frac < 0.85:
-            #     TM = (0.8*self.get_transition_matrix(8) + 0.2*self.get_transition_matrix(7))
-
             #update the probabilities 1 step in future
             p[t+1, :] = p[t, :] * TM
 
@@ -688,7 +685,7 @@ class Collection:
         #return the solution as well as storing? maybe a copy?
         return
     
-    def solve_FKE_smooth(self, p0 = None, T = 100, width = 0.02):
+    def solve_FKE_smooth(self, p0 = None, T = 100, width = 0, frac = 0):
         #solve FKE using a smoothed version of the transition matrix near discretization
         #boundaries. linear interpolant. 
 
@@ -719,39 +716,34 @@ class Collection:
         indices[0] = self.get_msm_index(self.__fix_zero_one(mon_frac0))
 
         current_mon_frac = mon_frac0
-        inner_cuts = self.__discretization.get_cutoffs()[1:-1]
+
+        #init needed variables for smoothing methods
+        if width > 0:
+            self.__inner_cuts = self.__discretization.get_cutoffs()[1:-1]
+        elif frac > 0:
+            self.__transition_regions = self.__make_frac_bins(frac, self.__discretization.get_cutoffs())
+
+        print("Regions: ", self.__transition_regions)
+        
 
         #solve the FKE, grabbing the relevant transition matrix each iteration
         for t in range(T):
 
-            #set the transition matrix based on the current mon frac
-            TM = self.get_transition_matrix(indices[t])
-
-            #check if we are within the width of a boundary
-            dists = np.array(np.abs(inner_cuts-current_mon_frac))
-            near_bdy = np.where(dists < width)[0]
-            if len(near_bdy) > 0:
-                near_bdy = near_bdy[0]
-                rightTM = self.get_transition_matrix(near_bdy+2)
-                leftTM  = self.get_transition_matrix(near_bdy+1)
-
-                #compute alpha using left and right endpoints of interval
-                a = inner_cuts[near_bdy] - width
-                b = inner_cuts[near_bdy] + width
-                alpha = (current_mon_frac - a) / (b-a)
-
-                #construct the alpha weighted LC of the transition matrices
-
-            print(near_bdy, indices[t])
-
-
-
+            #get a transition matrix for this mon frac using the appropriate method
+            if width > 0:
+                TM = self.__get_matrix_LC_width(width, current_mon_frac)
+            elif frac > 0:
+                TM = self.__get_matrix_LC_frac(current_mon_frac)
+            else:
+                TM = self.__get_matrix_base(current_mon_frac)
 
             #update the probabilities 1 step in future
             p[t+1, :] = p[t, :] * TM
 
             #get the index for the next transition matrix from monomer frac
             current_mon_frac = p[t+1,self.__monomer_index]
+
+            #TODO: fix this in case of smoother. how?
             indices[t+1] = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
 
         #store the solution and indices
@@ -760,6 +752,105 @@ class Collection:
 
         #return the solution as well as storing? maybe a copy?
         return self.__fke_soln
+    
+    def __get_matrix_base(self, current_mon_frac):
+        #simply grab the transition matrix from this interval
+
+        index = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
+        TM = self.get_transition_matrix(index)
+
+        return TM
+
+    def __get_matrix_LC_width(self, width, current_mon_frac):
+        #get a transition matrix for the current monomer fraction
+        #this method checks if mon frac is within width of a divider
+        #and constructs a linear combination of neighboring TMs if so
+
+        #check if we are within the width of a boundary
+        dists = np.array(np.abs(self.__inner_cuts-current_mon_frac))
+        near_bdy = np.where(dists < width)[0]
+        if len(near_bdy) > 0:
+
+            #extract the TMs left and right of this divider
+            near_bdy = near_bdy[0]
+            rightTM = self.get_transition_matrix(near_bdy+2)
+            leftTM  = self.get_transition_matrix(near_bdy+1)
+
+            #compute alpha using left and right endpoints of interval
+            a = self.__inner_cuts[near_bdy] - width
+            b = self.__inner_cuts[near_bdy] + width
+            alpha = (current_mon_frac - a) / (b-a)
+
+            #construct the alpha weighted LC of the transition matrices
+            TM = alpha * rightTM + (1-alpha) * leftTM
+
+        else:
+
+            #set the transition matrix based on the current mon frac
+            TM = self.__get_matrix_base(current_mon_frac)
+
+        return TM
+    
+    def __get_matrix_LC_frac(self, current_mon_frac):
+        #get a transition matrix for the current monomer fraction
+        #this method checks if mon frac is within given frac of the current bin
+        #width of the divider and contructs LC of neighboring matrices with that weight
+
+        #check if current mon frac is in any of the transition regions
+        in_region = False
+        region_id = -1
+        for i in range(len(self.__transition_regions)):
+            region = self.__transition_regions[i]
+
+            if current_mon_frac > region[0] and current_mon_frac < region[2]:
+                in_region = True
+                region_id = i
+                # print(current_mon_frac, region)
+                break
+
+        #if not in any region, return base TM
+        if not in_region:
+            return self.__get_matrix_base(current_mon_frac)
+
+        #if we are in a region, construct the LC of transition matrices
+        a = region[0]
+        b = region[2]
+        c = region[1]
+        if current_mon_frac < c and current_mon_frac > a:
+            alpha = 0.5 * (current_mon_frac-a) / (c-a)
+        else:
+            alpha = 0.5 + 0.5 * (current_mon_frac-c) / (b-c)
+        # alpha = (current_mon_frac-a) / (b-a)
+        leftTM = self.get_transition_matrix(region_id+1)
+        rightTM = self.get_transition_matrix(region_id+2)
+
+        index = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
+        # print(alpha, region_id+1, region_id+2, index)
+
+        TM = alpha * rightTM + (1-alpha) * leftTM
+        return TM
+    
+    def __make_frac_bins(self, frac, cutoffs):
+        #for each divider, create an interval that is [d-frac*W_l,d+frac*W_r] where
+        #d is the divider position, and W_i is the width of the bin to the left or right
+        #of the divider. return a list of these intervals. 
+
+        transition_regions = []
+
+        for i in range(1,len(cutoffs)-1):
+
+            left_div  = cutoffs[i-1]
+            div       = cutoffs[i]
+            right_div = cutoffs[i+1]
+
+            l_w = div - left_div
+            r_w = right_div - div
+
+            region = [div - frac*l_w, div, div+frac*r_w]
+            transition_regions.append(region)
+
+        return transition_regions
+
 
 
     def solve_BKE(self, fN, T):
