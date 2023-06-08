@@ -722,8 +722,6 @@ class Collection:
             self.__inner_cuts = self.__discretization.get_cutoffs()[1:-1]
         elif frac > 0:
             self.__transition_regions = self.__make_frac_bins(frac, self.__discretization.get_cutoffs())
-
-        print("Regions: ", self.__transition_regions)
         
 
         #solve the FKE, grabbing the relevant transition matrix each iteration
@@ -824,16 +822,13 @@ class Collection:
         leftTM = self.get_transition_matrix(region_id+1)
         rightTM = self.get_transition_matrix(region_id+2)
 
-        index = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
-        # print(alpha, region_id+1, region_id+2, index)
-
         TM = alpha * rightTM + (1-alpha) * leftTM
         return TM
     
     def __make_frac_bins(self, frac, cutoffs):
         #for each divider, create an interval that is [d-frac*W_l,d+frac*W_r] where
         #d is the divider position, and W_i is the width of the bin to the left or right
-        #of the divider. return a list of these intervals. 
+        #of the divider. return a list of these intervals, including the div point
 
         transition_regions = []
 
