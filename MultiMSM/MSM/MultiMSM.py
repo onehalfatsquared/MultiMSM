@@ -76,7 +76,7 @@ class MultiMSMBuilder:
         #process all the files to construct the MultiMSM and return it
 
         if not self.C.is_finalized():
-            self.__process_files(self.__cache, self.__num_files, self.__verbose)
+            self.__process_files(self.__cache, self.__verbose)
 
         return self.C
     
@@ -90,7 +90,7 @@ class MultiMSMBuilder:
         self.C = Collection(self.__discretization, self.__macrostate_map, 
                             parameters=self.__params, lag=self.__lag)
         
-        self.__process_files(self.__cache, self.__num_files, self.__verbose)
+        self.__process_files(self.__cache, self.__verbose)
 
         return self.C
 
@@ -188,7 +188,7 @@ class MultiMSMBuilder:
 
         return
     
-    def __process_files(self, cache, num_files, verbose):
+    def __process_files(self, cache, verbose):
         #loop over given files, adding counts to the collection. 
 
         if verbose:
@@ -298,6 +298,21 @@ class Collection:
         self.__freq_cache  = defaultdict(int)
         self.__clear_cache_flag = False
 
+        return
+    
+    def clear_cache(self):
+        '''
+        Calling this method will set a flag to avoid the check for inconsistent maps. 
+        The next time files are processed, a new cache will be built and saved.
+        '''
+
+        self.__clear_cache_flag = True
+        return
+
+    def __reset_cache(self):
+
+        self.__count_cache = defaultdict(defaultdict(int).copy)
+        self.__freq_cache  = defaultdict(int)
         return
 
     def __load_from_cache(self, cluster_file):
@@ -555,7 +570,6 @@ class Collection:
 
             self.__MSM_map[i+1].finalize_counts(self.__macrostate_map)
 
-
         #set a flag that there are now transition matrices that can be used
         self.__counts_finalized = True
 
@@ -572,6 +586,10 @@ class Collection:
     def get_lag(self):
 
         return self.__lag
+    
+    def get_num_states(self):
+
+        return self.__num_states
 
     def get_msm_index(self, monomer_fraction):
 
@@ -910,21 +928,6 @@ class Collection:
 
         return mon_frac
 
-    def clear_cache(self):
-        '''
-        Calling this method will set a flag to avoid the check for inconsistent maps. 
-        The next time files are processed, a new cache will be built and saved.
-        '''
-
-        self.__clear_cache_flag = True
-        return
-
-    def __reset_cache(self):
-
-        self.__count_cache = defaultdict(defaultdict(int).copy)
-        self.__freq_cache  = defaultdict(int)
-        return
-
     def get_effective_MSM(self):
 
         num_states = self.__num_states
@@ -938,3 +941,84 @@ class Collection:
         msm.set_count_matrix(count_matrix, self.__macrostate_map)
 
         return msm
+    
+class MultiMSMSolver:
+
+    def __init__(self, multiMSM):
+
+        self.__multiMSM = multiMSM
+
+        self.__monomer_index  = Monomer().get_index()
+
+
+
+
+
+
+    def solve_FKE_smooth(self, p0 = None, T = 100, width = 0, frac = 0):
+        #solve FKE using a smoothed version of the transition matrix near discretization
+        #boundaries. linear interpolant. 
+
+        if p0 is None:
+            init_dist = self.__FKE_monomer_start()
+            print("Warning: Initial distribution not specified. Defaulting to 100% monomer")
+        elif p0 == "monomer_start":
+            init_dist = self.__FKE_monomer_start()
+        else:
+            init_dist = p0
+
+        p0 = init_dist
+
+        #first check the distribution is an nparray with the correct dimensions
+        if type(p0) is not np.ndarray:
+            p0 = np.array(p0, dtype=float)
+
+        if len(p0) != self.__num_states:
+            err_msg =  "The length of the supplied initial distribution ({})".format(len(p0))
+            err_msg += " does not match the number of states ({})".format(self.__num_states)
+            raise ValueError(err_msg)
+
+        #init an array to store the time dependent solution, as well as MSM indices
+        p          = np.zeros((T+1, self.__num_states), dtype=float)
+        indices    = np.zeros(T+1, dtype=int)
+        p[0, :]    = p0
+        mon_frac0  = p0[self.__monomer_index]
+        indices[0] = self.get_msm_index(self.__fix_zero_one(mon_frac0))
+
+        current_mon_frac = mon_frac0
+
+        #init needed variables for smoothing methods
+        if width > 0:
+            self.__inner_cuts = self.__discretization.get_cutoffs()[1:-1]
+        elif frac > 0:
+            self.__transition_regions = self.__make_frac_bins(frac, self.__discretization.get_cutoffs())
+        
+
+        #solve the FKE, grabbing the relevant transition matrix each iteration
+        for t in range(T):
+
+            #get a transition matrix for this mon frac using the appropriate method
+            if width > 0:
+                TM = self.__get_matrix_LC_width(width, current_mon_frac)
+            elif frac > 0:
+                TM = self.__get_matrix_LC_frac(current_mon_frac)
+            else:
+                TM = self.__get_matrix_base(current_mon_frac)
+
+            #update the probabilities 1 step in future
+            p[t+1, :] = p[t, :] * TM
+
+            #get the index for the next transition matrix from monomer frac
+            current_mon_frac = p[t+1,self.__monomer_index]
+
+            #TODO: fix this in case of smoother. how?
+            indices[t+1] = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
+
+        #store the solution and indices
+        self.__fke_soln    = p
+        self.__msm_indices = indices
+
+        #return the solution as well as storing? maybe a copy?
+        return self.__fke_soln
+
+
