@@ -404,7 +404,7 @@ class MicrostateData:
     The microstate can be defined in two ways. 
     1) By supplying a dictionary of conditions. Each key must be an observable that
     was computed when doing the cluster analysis.
-    2) By suppling a State object that represents the desired microstate. 
+    2) By supplying a State object that represents the desired microstate. 
     '''
 
     def __init__(self, data_folder, microstate, recompute = False, verbose=False):
@@ -624,6 +624,72 @@ class MicrostateData:
             return self.__mass_weighted_time_series
         else:
             return self.__time_series
+        
+
+class MicrostateCollectionData:
+    '''
+    Create a MicrostateData() object for each microstate provided. Return any quantities
+    about the microstate collections added over each of the supplied states. 
+    '''
+    def __init__(self, data_folder, microstates, recompute = False, verbose=False):
+
+        #parse the microstates input
+        self.__parse_microstates(microstates)
+
+        #create MicrostateData objects for each provided state
+        self.__track_microstates(data_folder, recompute, verbose)
+
+
+        return
+
+    def __parse_microstates(self, microstates):
+
+        #Check that this is a list. 
+        if isinstance(microstates, list):
+            self.__microstates = microstates
+            return
+        
+        #if single instance, make it a list
+        elif isinstance(microstates, SAASH.util.state.State) or isinstance(microstates, dict):
+
+            self.__microstates = [microstates]
+            return
+        
+        #if we reach here, the data type is unsupported
+        err_msg = "The supplied microstates must be either a SAASH.State object, "
+        err_msg+= "a dictionary of obervables and values, or list of the prior types." 
+        err_msg+= " You supplied a "
+        err_msg+= "{} object".format(type(microstates))
+        raise TypeError(err_msg)
+    
+        return
+    
+    def __track_microstates(self, data_folder, recompute, verbose):
+        #create a Data Object for each microstate
+
+        self.__microstates_data = []
+
+        for microstate in self.__microstates:
+
+            MD = MicrostateData(data_folder, microstate, recompute, verbose)
+            self.__microstates_data.append(MD)
+
+        return
+
+    def get_time_series(self):
+        #return the sum of time series vectors for each supplied microstate
+
+        ts = self.__microstates_data[0].get_time_series()
+
+        for mdata in self.__microstates_data[1:]:
+            ts += mdata.get_time_series()
+
+        return ts
+    
+
+
+
+
 
 
 
