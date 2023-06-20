@@ -676,13 +676,13 @@ class MicrostateCollectionData:
 
         return
 
-    def get_time_series(self):
+    def get_time_series(self, mass_weighted=True):
         #return the sum of time series vectors for each supplied microstate
 
         ts = self.__microstates_data[0].get_time_series()
 
         for mdata in self.__microstates_data[1:]:
-            ts += mdata.get_time_series()
+            ts += mdata.get_time_series(mass_weighted=mass_weighted)
 
         return ts
     
