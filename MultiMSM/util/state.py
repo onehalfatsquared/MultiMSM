@@ -79,9 +79,10 @@ class MacrostateMap:
 
     # TODO : test how singletons behave when loading. may need to construct a new one on load. 
 
-    def __init__(self, monomer_state = None, load_name = None):
+    def __init__(self, monomer_state = None, load_name = None, verbose=False):
 
         #check for disallowed inputs
+        self.__verbose = verbose
         self.__handle_input(monomer_state, load_name)
 
         #set the default save location
@@ -120,12 +121,18 @@ class MacrostateMap:
         return
 
     def __handle_input(self, monomer_state, load_name):
-        #check for disallowed case of neither parameter being provided
+        #check for case where no parameters are specified
 
+        #set flag for using default monomer
+        self.__use_default_monomer = False
+
+        #provide a warning that the default monomer is being used if verbose
         if monomer_state is None and load_name is None:
-            err_msg  = "The MacrostateMap needs to be initialized with either a description "
-            err_msg += "of the monomer state, or the name of a saved mapping. "
-            raise RuntimeError(err_msg)
+            self.__use_default_monomer = True
+            if self.__verbose:
+                warning_msg = "WARNING: no monomer state provided. Using the default. "
+                print(warning_msg)
+
 
         return
 
@@ -158,7 +165,15 @@ class MacrostateMap:
         #init and set monomer state and index, creates a singleton for Monomer
         self.__monomer_state = None
         self.__monomer_index = -1
-        self.set_monomer_state(monomer_state.get_state())
+
+        #if using default monomers
+        if self.__use_default_monomer:
+            dM = Monomer(State(1,{}),0)
+            self.set_monomer_state(dM.get_state())
+
+        #if using provided monomers
+        else:
+            self.set_monomer_state(monomer_state.get_state())
 
         #set load state to false
         self.__was_loaded = False
@@ -188,7 +203,8 @@ class MacrostateMap:
             self.__been_updated = False
             self.__was_loaded   = True
 
-            # TODO - may need to create Monomer singelton?
+            #create the monomer singleton now so it exists. no issue if redundant
+            Monomer(self.__monomer_state, self.__monomer_index)
 
         return
 

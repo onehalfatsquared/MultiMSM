@@ -470,13 +470,13 @@ class MicrostateData:
         #determine which kind of microstate was supplied, construct condition from it
         #construct a unique name for this state and extract its size for weighting
 
-        if isinstance(microstate, SAASH.util.state.State):
-
-            self.__conditions = microstate.get_all_properties()
-
-        elif isinstance(microstate, dict):
+        if isinstance(microstate, dict):
 
             self.__conditions = microstate
+
+        elif isinstance(microstate, SAASH.util.state.State) or microstate.get_size() == 1:
+
+            self.__conditions = microstate.get_all_properties()
 
         else:
 
@@ -650,7 +650,7 @@ class MicrostateCollectionData:
             return
         
         #if single instance, make it a list
-        elif isinstance(microstates, SAASH.util.state.State) or isinstance(microstates, dict):
+        elif isinstance(microstates, SAASH.util.state.State) or isinstance(microstates, dict) or microstates.get_size() == 1:
 
             self.__microstates = [microstates]
             return

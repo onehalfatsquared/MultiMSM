@@ -433,6 +433,7 @@ class Collection:
         #TODO - either test the efficiency of this, or make it so that states always in map
         if start_index is None or end_index is None:
             return
+        
 
         #add a count to the appropriate MSM
         self.__add_count(start_index, end_index, msm_index)
