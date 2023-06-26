@@ -244,9 +244,7 @@ class Collection:
     monomer fraction for which the transition occurred. 
 
     The counts must be finalized in order to get a probability transition matrix
-    representation of each MSM. The class also contains methods for solving the 
-    forward and backward Kolmogorov equations for the given collection of MSMs and 
-    discretization bins. 
+    representation of each MSM. Required for passing to KE solvers. 
     
     '''
 
@@ -283,12 +281,6 @@ class Collection:
 
         #store number of observations of each monomer fraction
         self.__frac_freqs  = Counter()
-
-        #init storage for solutions to forward and backward equations
-        #size of these arrays depend on final time, a runtime variable
-        self.__fke_soln = None
-        self.__bke_soln = None
-        self.__msm_indices = None
 
         #flag to mark when counts are done being added and have been normalized
         self.__counts_finalized = False
@@ -562,7 +554,6 @@ class Collection:
 
         return
 
-
     def finalize_counts(self):
         #call finalize counts on each MSM. Constructs a transition matrix from the counts added so far
 
@@ -591,6 +582,14 @@ class Collection:
 
         return self.__num_states
 
+    def get_discretization(self):
+
+        return self.__discretization
+
+    def get_map(self):
+
+        return self.__macrostate_map
+
     def get_msm_index(self, monomer_fraction):
 
         return self.__discretization.determine_interval(monomer_fraction)
@@ -607,35 +606,6 @@ class Collection:
 
         return self.get_msm(msm_index).get_count_matrix()
 
-    def get_FKE(self, p0 = None, T = 100):
-
-        #check if a solution to the FKE has been computed and return it
-        if self.__fke_soln is not None:
-            return self.__fke_soln
-
-        #check if a solution can be computed and do so with given or default values
-        if not self.__counts_finalized:
-
-            err_msg =  "Transition matrices have not been finalized. Solution to FKE "
-            err_msg += "cannot be computed yet"
-            raise RuntimeError(err_msg)
-
-        #check for distribution and set default if none
-        if p0 is None:
-            init_dist = self.__FKE_monomer_start()
-            print("Warning: Initial distribution not specified. Defaulting to 100% monomer")
-        elif p0 == "monomer_start":
-            init_dist = self.__FKE_monomer_start()
-        else:
-            init_dist = p0
-
-        #solve FKE and return solution
-        if self.__verbose:
-            print("Solving FKE with supplied initial distribution and T={} lags.".format(T)) 
-        self.solve_FKE(init_dist, T)
-        return self.__fke_soln
-
-
     def print_all_transition_matrices(self):
 
         for i in range(self.__num_elements):
@@ -651,218 +621,6 @@ class Collection:
             m = self.__MSM_map[i+1]
             print("For m_frac in {}".format(self.__discretization.interval_index_to_bounds(i+1)))
             print(m.get_count_matrix())
-
-
-    def solve_FKE(self, p0, T):
-        '''
-        Solve the Forward Kolmogorov Equation for the probability of states as a function
-        of time. 
-        p0 is the initial distribution, row vector (nparray)
-        T is the final time (int # of lag times)
-
-        In solving this equation, the transition matrix that will be used each step depends on the 
-        monomer fraction. We will track the msm index of the appropriate transition matrix and 
-        save the time series. This will be needed to solve the backward equations. 
-        '''
-
-        #first check the distribution is an nparray with the correct dimensions
-        if type(p0) is not np.ndarray:
-            p0 = np.array(p0, dtype=float)
-
-        if len(p0) != self.__num_states:
-            err_msg =  "The length of the supplied initial distribution ({})".format(len(p0))
-            err_msg += " does not match the number of states ({})".format(self.__num_states)
-            raise ValueError(err_msg)
-
-        #init an array to store the time dependent solution, as well as MSM indices
-        p          = np.zeros((T+1, self.__num_states), dtype=float)
-        indices    = np.zeros(T+1, dtype=int)
-        p[0, :]    = p0
-        mon_frac0  = p0[self.__monomer_index]
-        indices[0] = self.get_msm_index(self.__fix_zero_one(mon_frac0))
-
-        current_mon_frac = mon_frac0
-
-        #solve the FKE, grabbing the relevant transition matrix each iteration
-        for t in range(T):
-
-            #get the transition matrix for the current time step
-            TM = self.get_transition_matrix(indices[t])
-
-            #update the probabilities 1 step in future
-            p[t+1, :] = p[t, :] * TM
-
-            #get the index for the next transition matrix from monomer frac
-            current_mon_frac = p[t+1,self.__monomer_index]
-            indices[t+1] = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
-
-        #store the solution and indices
-        self.__fke_soln    = p
-        self.__msm_indices = indices
-
-        #return the solution as well as storing? maybe a copy?
-        return
-    
-    def solve_FKE_smooth(self, p0 = None, T = 100, width = 0, frac = 0):
-        #solve FKE using a smoothed version of the transition matrix near discretization
-        #boundaries. linear interpolant. 
-
-        if p0 is None:
-            init_dist = self.__FKE_monomer_start()
-            print("Warning: Initial distribution not specified. Defaulting to 100% monomer")
-        elif p0 == "monomer_start":
-            init_dist = self.__FKE_monomer_start()
-        else:
-            init_dist = p0
-
-        p0 = init_dist
-
-        #first check the distribution is an nparray with the correct dimensions
-        if type(p0) is not np.ndarray:
-            p0 = np.array(p0, dtype=float)
-
-        if len(p0) != self.__num_states:
-            err_msg =  "The length of the supplied initial distribution ({})".format(len(p0))
-            err_msg += " does not match the number of states ({})".format(self.__num_states)
-            raise ValueError(err_msg)
-
-        #init an array to store the time dependent solution, as well as MSM indices
-        p          = np.zeros((T+1, self.__num_states), dtype=float)
-        indices    = np.zeros(T+1, dtype=int)
-        p[0, :]    = p0
-        mon_frac0  = p0[self.__monomer_index]
-        indices[0] = self.get_msm_index(self.__fix_zero_one(mon_frac0))
-
-        current_mon_frac = mon_frac0
-
-        #init needed variables for smoothing methods
-        if width > 0:
-            self.__inner_cuts = self.__discretization.get_cutoffs()[1:-1]
-        elif frac > 0:
-            self.__transition_regions = self.__make_frac_bins(frac, self.__discretization.get_cutoffs())
-        
-
-        #solve the FKE, grabbing the relevant transition matrix each iteration
-        for t in range(T):
-
-            #get a transition matrix for this mon frac using the appropriate method
-            if width > 0:
-                TM = self.__get_matrix_LC_width(width, current_mon_frac)
-            elif frac > 0:
-                TM = self.__get_matrix_LC_frac(current_mon_frac)
-            else:
-                TM = self.__get_matrix_base(current_mon_frac)
-
-            #update the probabilities 1 step in future
-            p[t+1, :] = p[t, :] * TM
-
-            #get the index for the next transition matrix from monomer frac
-            current_mon_frac = p[t+1,self.__monomer_index]
-
-            #TODO: fix this in case of smoother. how?
-            indices[t+1] = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
-
-        #store the solution and indices
-        self.__fke_soln    = p
-        self.__msm_indices = indices
-
-        #return the solution as well as storing? maybe a copy?
-        return self.__fke_soln
-    
-    def __get_matrix_base(self, current_mon_frac):
-        #simply grab the transition matrix from this interval
-
-        index = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
-        TM = self.get_transition_matrix(index)
-
-        return TM
-
-    def __get_matrix_LC_width(self, width, current_mon_frac):
-        #get a transition matrix for the current monomer fraction
-        #this method checks if mon frac is within width of a divider
-        #and constructs a linear combination of neighboring TMs if so
-
-        #check if we are within the width of a boundary
-        dists = np.array(np.abs(self.__inner_cuts-current_mon_frac))
-        near_bdy = np.where(dists < width)[0]
-        if len(near_bdy) > 0:
-
-            #extract the TMs left and right of this divider
-            near_bdy = near_bdy[0]
-            rightTM = self.get_transition_matrix(near_bdy+2)
-            leftTM  = self.get_transition_matrix(near_bdy+1)
-
-            #compute alpha using left and right endpoints of interval
-            a = self.__inner_cuts[near_bdy] - width
-            b = self.__inner_cuts[near_bdy] + width
-            alpha = (current_mon_frac - a) / (b-a)
-
-            #construct the alpha weighted LC of the transition matrices
-            TM = alpha * rightTM + (1-alpha) * leftTM
-
-        else:
-
-            #set the transition matrix based on the current mon frac
-            TM = self.__get_matrix_base(current_mon_frac)
-
-        return TM
-    
-    def __get_matrix_LC_frac(self, current_mon_frac):
-        #get a transition matrix for the current monomer fraction
-        #this method checks if mon frac is within given frac of the current bin
-        #width of the divider and contructs LC of neighboring matrices with that weight
-
-        #check if current mon frac is in any of the transition regions
-        in_region = False
-        region_id = -1
-        for i in range(len(self.__transition_regions)):
-            region = self.__transition_regions[i]
-
-            if current_mon_frac > region[0] and current_mon_frac < region[2]:
-                in_region = True
-                region_id = i
-                # print(current_mon_frac, region)
-                break
-
-        #if not in any region, return base TM
-        if not in_region:
-            return self.__get_matrix_base(current_mon_frac)
-
-        #if we are in a region, construct the LC of transition matrices
-        a = region[0]
-        b = region[2]
-        c = region[1]
-        if current_mon_frac < c and current_mon_frac > a:
-            alpha = 0.5 * (current_mon_frac-a) / (c-a)
-        else:
-            alpha = 0.5 + 0.5 * (current_mon_frac-c) / (b-c)
-        # alpha = (current_mon_frac-a) / (b-a)
-        leftTM = self.get_transition_matrix(region_id+1)
-        rightTM = self.get_transition_matrix(region_id+2)
-
-        TM = alpha * rightTM + (1-alpha) * leftTM
-        return TM
-    
-    def __make_frac_bins(self, frac, cutoffs):
-        #for each divider, create an interval that is [d-frac*W_l,d+frac*W_r] where
-        #d is the divider position, and W_i is the width of the bin to the left or right
-        #of the divider. return a list of these intervals, including the div point
-
-        transition_regions = []
-
-        for i in range(1,len(cutoffs)-1):
-
-            left_div  = cutoffs[i-1]
-            div       = cutoffs[i]
-            right_div = cutoffs[i+1]
-
-            l_w = div - left_div
-            r_w = right_div - div
-
-            region = [div - frac*l_w, div, div+frac*r_w]
-            transition_regions.append(region)
-
-        return transition_regions
 
 
 
@@ -909,14 +667,6 @@ class Collection:
         #return the solution? 
         return
     
-    def __FKE_monomer_start(self):
-        #return an initial distribution corresponding to 100% subunits as monomers
-
-        init_dist = np.zeros(self.__num_states, dtype=float)
-        init_dist[self.__monomer_index] = 1.0
-
-        return init_dist
-
     def __fix_zero_one(self, mon_frac):
         #if the monomer fraction is exactly zero or 1, give it a slight push
 
@@ -941,24 +691,114 @@ class Collection:
         msm.set_count_matrix(count_matrix, self.__macrostate_map)
 
         return msm
+
     
 class MultiMSMSolver:
 
     def __init__(self, multiMSM):
-
+        
+        #keep a copy of the multiMSM to reference during methods
         self.__multiMSM = multiMSM
 
-        self.__monomer_index  = Monomer().get_index()
+        #check that the MultiMSM has been finalized so solutions can be computed
+        self.__check_finalized()
+
+        #extract some commonly used constant objects from the multiMSM
+        self.__num_states = multiMSM.get_num_states()
+        self.__discretization = multiMSM.get_discretization()
+        self.__macrostate_map = multiMSM.get_map()
+
+        #store info on monomers
+        self.__monomer_state = Monomer().get_state()
+        self.__monomer_index = Monomer().get_index()
+
+        #init storage for solutions to forward and backward equations
+        #size of these arrays depend on final time, a runtime variable
+        self.__current_p0 = -1
+        self.__fke_soln = None
+        self.__bke_soln = None
+
+        #the backward equation needs to know what transition matrices were used
+        #to solve the forward equation. This dict will store the indices and weights
+        #to reconstruct the matrix as tuples for each lag, which indexes the dict
+        self.__TM_indices = dict()
+
+        return
 
 
+    def solve_FKE(self, T, p0 = None, frac = 0.25):
+        '''
+        Solve FKE up to integer lag T. p0 is the initial distribution, which will
+        default to 100% monomers if another distribution is not specified. 
+
+        The optional parameter frac will perform smoothing of the solution 
+        across monomer fraction bin edges if a positive value between 0 and 1 
+        is specified. If the monomer fraction is within L*frac of bin edge, where 
+        L is the bin width, it construct a linear combination of transition matrices
+        for the current and neighboring bin. 
+
+        We have found that 0.25 provides good results for each system we have tested
+        on. 
+        '''
+
+        #verify and setup the initial conditions
+        init_dist = self.__setup_initial_condition(p0)
+
+        #setup soln to FKE. if re-solving with same p0, return or resize 
+        #depending on T
+        start_time = self.__setup_FKE(init_dist, p0, T)
+        current_mon_frac = self.__fke_soln[start_time, self.__monomer_index]
+
+        #init needed variables for smoothing if requested
+        if frac > 0:
+            self.__transition_regions = self.__make_frac_bins(frac, self.__discretization.get_cutoffs())
+        
+        #solve the FKE, grabbing the relevant transition matrix each iteration
+        for t in range(start_time, T):
+
+            #get a transition matrix for this mon frac using the appropriate method
+            if frac > 0:
+                TM = self.__get_matrix_LC_frac(current_mon_frac, t)
+            else:
+                TM = self.__get_matrix_base(current_mon_frac, t)
+
+            #update the probabilities 1 step in future
+            self.__fke_soln[t+1, :] = self.__fke_soln[t, :] * TM
+
+            #get the index for the next transition matrix from monomer frac
+            current_mon_frac = self.__fke_soln[t+1,self.__monomer_index]
+
+        #store what p0 was used to compute this soln
+        self.__current_p0 = p0
+
+        #return a copy of the full solution
+        return self.__fke_soln.copy()
+
+    def get_FKE(self, T, p0 = None, frac = 0.25, target_index_set = None):
+        #return the solution to the FKE up to the specified time and given 
+        #initial distribution 
+        #if target_index set is None, return full thing. Otherwise return the
+        #summed probability of the target set
+
+        #check that p0 is same as stored, otherwise compute full soln
+        if self.__current_p0 != p0 or (self.__fke_soln is not None and T+1 > self.__fke_soln.shape[0]):
+            self.solve_FKE(T, p0=p0, frac=frac)
+
+        #check if target index is not None and sum the probabilities
+        if target_index_set is not None:
+            if not isinstance(target_index_set, list):
+                target_index_set = [target_index_set]
+
+            return self.__fke_soln[:,target_index_set].sum(1)
+
+        #return the full solution
+        return self.__fke_soln
 
 
+    def __setup_initial_condition(self, p0):
+        #determine the IC and do type and bounds checking
 
-
-    def solve_FKE_smooth(self, p0 = None, T = 100, width = 0, frac = 0):
-        #solve FKE using a smoothed version of the transition matrix near discretization
-        #boundaries. linear interpolant. 
-
+        #set the IC from user input
         if p0 is None:
             init_dist = self.__FKE_monomer_start()
             print("Warning: Initial distribution not specified. Defaulting to 100% monomer")
@@ -967,58 +807,149 @@ class MultiMSMSolver:
         else:
             init_dist = p0
 
-        p0 = init_dist
+        #first check the distribution is an nparray and make it one if not
+        if type(init_dist) is not np.ndarray:
+            init_dist = np.array(init_dist, dtype=float)
 
-        #first check the distribution is an nparray with the correct dimensions
-        if type(p0) is not np.ndarray:
-            p0 = np.array(p0, dtype=float)
-
-        if len(p0) != self.__num_states:
-            err_msg =  "The length of the supplied initial distribution ({})".format(len(p0))
+        #check that it is over the correct number of states
+        if len(init_dist) != self.__num_states:
+            err_msg =  "The length of the supplied initial distribution ({})".format(len(init_dist))
             err_msg += " does not match the number of states ({})".format(self.__num_states)
             raise ValueError(err_msg)
 
-        #init an array to store the time dependent solution, as well as MSM indices
-        p          = np.zeros((T+1, self.__num_states), dtype=float)
-        indices    = np.zeros(T+1, dtype=int)
-        p[0, :]    = p0
-        mon_frac0  = p0[self.__monomer_index]
-        indices[0] = self.get_msm_index(self.__fix_zero_one(mon_frac0))
+        return init_dist
 
-        current_mon_frac = mon_frac0
+    def __FKE_monomer_start(self):
+        #return an initial distribution corresponding to 100% subunits as monomers
 
-        #init needed variables for smoothing methods
-        if width > 0:
-            self.__inner_cuts = self.__discretization.get_cutoffs()[1:-1]
-        elif frac > 0:
-            self.__transition_regions = self.__make_frac_bins(frac, self.__discretization.get_cutoffs())
+        init_dist = np.zeros(self.__num_states, dtype=float)
+        init_dist[self.__monomer_index] = 1.0
+
+        return init_dist
+
+    def __setup_FKE(self, init_dist, p0, T):
+        #setup data structure to hold FKE soln
+        #if it already exists and used the same p0 then either...
+        #   1) return if T < size solution
+        #   2) resume from the end of T > size solution
+
+        #the return is the time lag to start the solve at
+
+        #if the p0 is different setup a fresh solve
+        if self.__current_p0 != p0:
+            self.__fke_soln = np.zeros((T+1, self.__num_states), dtype=float)
+            self.__fke_soln[0, :] = init_dist
+            #clear the index dict
+            self.__TM_indices.clear()
+            return 0
+
+        #if we get here, p0 is the same. Check the T values
+
+        #if we have already solved longer than the requested time
+        if self.__fke_soln.shape[0] >= T+1:
+            return T+2
+
+        #if we get here, we need to continue the solve, return len of soln
+        return self.__fke_soln.shape[0]
+
+
+    def __make_frac_bins(self, frac, cutoffs):
+        #for each divider, create an interval that is [d-frac*W_l,d+frac*W_r] where
+        #d is the divider position, and W_i is the width of the bin to the left or right
+        #of the divider. return a list of these intervals, including the div point
+
+        transition_regions = []
+
+        for i in range(1,len(cutoffs)-1):
+
+            left_div  = cutoffs[i-1]
+            div       = cutoffs[i]
+            right_div = cutoffs[i+1]
+
+            l_w = div - left_div
+            r_w = right_div - div
+
+            region = [div - frac*l_w, div, div+frac*r_w]
+            transition_regions.append(region)
+
+        return transition_regions
+
+    def __get_matrix_base(self, current_mon_frac, t):
+        #simply grab the transition matrix from this interval
+
+        index = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
+        TM = self.get_transition_matrix(index)
+
+        #add the index of this matrix to the indices dict
+        self.__TM_indices[t] = [(index,1)]
+
+        return TM
+    
+    def __get_matrix_LC_frac(self, current_mon_frac, t):
+        #get a transition matrix for the current monomer fraction
+        #this method checks if mon frac is within given frac of the current bin
+        #width of the divider and contructs LC of neighboring matrices with that weight
+
+        #check if current mon frac is in any of the transition regions
+        in_region = False
+        region_id = -1
+        for i in range(len(self.__transition_regions)):
+            region = self.__transition_regions[i]
+
+            if current_mon_frac > region[0] and current_mon_frac < region[2]:
+                in_region = True
+                region_id = i
+                # print(current_mon_frac, region)
+                break
+
+        #if not in any region, return base TM
+        if not in_region:
+            return self.__get_matrix_base(current_mon_frac)
+
+        #if we are in a region, construct the LC of transition matrices
+        a = region[0]
+        b = region[2]
+        c = region[1]
+
+        #determine alpha based on which side of the divider we are and its size
+        if current_mon_frac < c and current_mon_frac > a:
+            alpha = 0.5 * (current_mon_frac-a) / (c-a)
+        else:
+            alpha = 0.5 + 0.5 * (current_mon_frac-c) / (b-c)
+
+        #get the transition matrices to the left and right and compute LC
+        leftTM = self.get_transition_matrix(region_id+1)
+        rightTM = self.get_transition_matrix(region_id+2)
+        TM = alpha * rightTM + (1-alpha) * leftTM
+
+        #add the linear combination for this matrix to the index dict
+        self.__TM_indices[t] = [(region_id+1,1-alpha),(region_id+2,alpha)]
+        return TM
+    
+    def __fix_zero_one(self, mon_frac):
+        #if the monomer fraction is exactly zero or 1, give it a slight push
+
+        if mon_frac > (1-1e-6):
+            mon_frac -= 1e-6
+
+        elif mon_frac < 1e-6:
+            mon_frac += 1e-6
+
+        return mon_frac
+
+    def __check_finalized(self):
+        #check if the MultiMSM has been finalized before computing solns
+
+        if not self.__multiMSM.is_finalized():
+
+            err_msg =  "Transition matrices have not been finalized. Solution to FKE "
+            err_msg += "cannot be computed yet"
+            raise RuntimeError(err_msg)
+
+        return
+
         
 
-        #solve the FKE, grabbing the relevant transition matrix each iteration
-        for t in range(T):
-
-            #get a transition matrix for this mon frac using the appropriate method
-            if width > 0:
-                TM = self.__get_matrix_LC_width(width, current_mon_frac)
-            elif frac > 0:
-                TM = self.__get_matrix_LC_frac(current_mon_frac)
-            else:
-                TM = self.__get_matrix_base(current_mon_frac)
-
-            #update the probabilities 1 step in future
-            p[t+1, :] = p[t, :] * TM
-
-            #get the index for the next transition matrix from monomer frac
-            current_mon_frac = p[t+1,self.__monomer_index]
-
-            #TODO: fix this in case of smoother. how?
-            indices[t+1] = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
-
-        #store the solution and indices
-        self.__fke_soln    = p
-        self.__msm_indices = indices
-
-        #return the solution as well as storing? maybe a copy?
-        return self.__fke_soln
-
+        
+        
 
