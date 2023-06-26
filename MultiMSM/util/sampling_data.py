@@ -470,13 +470,23 @@ class MicrostateData:
         #determine which kind of microstate was supplied, construct condition from it
         #construct a unique name for this state and extract its size for weighting
 
+        self.__is_monomer   = False
+        self.__mon_type     = None
+
         if isinstance(microstate, dict):
 
             self.__conditions = microstate
 
-        elif isinstance(microstate, SAASH.util.state.State) or microstate.get_size() == 1:
+        elif isinstance(microstate, SAASH.util.state.State):
 
             self.__conditions = microstate.get_all_properties()
+
+        elif microstate.get_size() == 1:
+
+            self.__conditions = microstate.get_all_properties()
+            self.__is_monomer = True
+            if 'type' in self.__conditions:
+                self.__mon_type = self.__conditions['type']
 
         else:
 
@@ -581,6 +591,43 @@ class MicrostateData:
             frac  = sim_results.monomer_frac[0]
             self.__num_subunits = int(count / frac)
 
+        #do sepaate processing for monomer or cluster
+        if self.__is_monomer:
+            counts = self.__process_monomer(sim_results)
+        else:
+            counts = self.__process_clusters(sim_results)
+
+        #add BTS to the total number of counts
+        if self.__microstate_counts is None:
+            self.__microstate_counts  = counts
+        else:
+            self.__microstate_counts += counts
+
+        return
+
+    def __process_monomer(self, sim_results):
+        #get a time series of the number of monomers for this file
+
+        #init storage for monomer fraction counts
+        num_frames = len(sim_results.monomer_ids)
+        count_series = np.zeros(num_frames, dtype=float)
+
+        #fill the counts using sim_results data
+        for i in range(num_frames):
+
+            #check whether we care about all monomers or just 1 type
+            if self.__mon_type is None:
+                count_series[i] = sim_results.monomer_frac[i] * self.__num_subunits
+            else:
+                #get the fraction of monomers of the given type
+                type_count = sim_results.monomer_types[i].count(self.__mon_type)
+                count_series[i] = type_count
+
+        return count_series
+    
+    def __process_clusters(self, sim_results):
+        #get a time series of the number of specified cluster states
+
         #extract the trajectories
         cluster_info = sim_results.cluster_info
 
@@ -594,13 +641,8 @@ class MicrostateData:
             else:
                 BTS+= traj.get_filtered_time_series(self.__conditions)
 
-        #add BTS to the total number of counts
-        if self.__microstate_counts is None:
-            self.__microstate_counts  = BTS
-        else:
-            self.__microstate_counts += BTS
+        return BTS
 
-        return
     
     def get_time_series(self, mass_weighted = True):
         #compute a time series of yield of the supplied microstate
@@ -650,17 +692,7 @@ class MicrostateCollectionData:
             return
         
         #if single instance, make it a list
-        elif isinstance(microstates, SAASH.util.state.State) or isinstance(microstates, dict) or microstates.get_size() == 1:
-
-            self.__microstates = [microstates]
-            return
-        
-        #if we reach here, the data type is unsupported
-        err_msg = "The supplied microstates must be either a SAASH.State object, "
-        err_msg+= "a dictionary of obervables and values, or list of the prior types." 
-        err_msg+= " You supplied a "
-        err_msg+= "{} object".format(type(microstates))
-        raise TypeError(err_msg)
+        self.__microstates = [microstates]
     
         return
     

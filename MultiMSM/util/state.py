@@ -158,6 +158,8 @@ class MacrostateMap:
     def __handle_setup(self, monomer_state):
         #perform first time setup of a new map
 
+        #TODO:check for list of monomer states 
+
         #init dicts for the mappings
         self.__toIndex = defaultdict(lambda: None)
         self.__toState = defaultdict(lambda: None)
