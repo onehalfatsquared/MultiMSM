@@ -847,8 +847,13 @@ class MultiMSMSolver:
         #verify that the inner product of forward and backward solutions are
         #invariant in time
 
+        #check that forward and backward solutions exist
+        if self.__fke_soln is None or self.__bke_soln is None:
+            err_msg = "Forward and Backward equations have not been solved"
+            raise RuntimeError(err_msg)
+        
         #init storage for the time dependent inner product
-        T = self.__fke_soln.shape[0]
+        T = min(self.__fke_soln.shape[0], self.__bke_soln.shape[1])
         invariant_product = np.zeros(T, dtype=float)
         S = 0 # sum consecutive differences
 
