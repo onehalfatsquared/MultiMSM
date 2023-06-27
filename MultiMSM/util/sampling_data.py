@@ -404,7 +404,7 @@ class MicrostateData:
     The microstate can be defined in two ways. 
     1) By supplying a dictionary of conditions. Each key must be an observable that
     was computed when doing the cluster analysis.
-    2) By suppling a State object that represents the desired microstate. 
+    2) By supplying a State object that represents the desired microstate. 
     '''
 
     def __init__(self, data_folder, microstate, recompute = False, verbose=False):
@@ -470,13 +470,23 @@ class MicrostateData:
         #determine which kind of microstate was supplied, construct condition from it
         #construct a unique name for this state and extract its size for weighting
 
-        if isinstance(microstate, SAASH.util.state.State):
+        self.__is_monomer   = False
+        self.__mon_type     = None
+
+        if isinstance(microstate, dict):
+
+            self.__conditions = microstate
+
+        elif isinstance(microstate, SAASH.util.state.State):
 
             self.__conditions = microstate.get_all_properties()
 
-        elif isinstance(microstate, dict):
+        elif microstate.get_size() == 1:
 
-            self.__conditions = microstate
+            self.__conditions = microstate.get_all_properties()
+            self.__is_monomer = True
+            if 'type' in self.__conditions:
+                self.__mon_type = self.__conditions['type']
 
         else:
 
@@ -581,6 +591,43 @@ class MicrostateData:
             frac  = sim_results.monomer_frac[0]
             self.__num_subunits = int(count / frac)
 
+        #do sepaate processing for monomer or cluster
+        if self.__is_monomer:
+            counts = self.__process_monomer(sim_results)
+        else:
+            counts = self.__process_clusters(sim_results)
+
+        #add BTS to the total number of counts
+        if self.__microstate_counts is None:
+            self.__microstate_counts  = counts
+        else:
+            self.__microstate_counts += counts
+
+        return
+
+    def __process_monomer(self, sim_results):
+        #get a time series of the number of monomers for this file
+
+        #init storage for monomer fraction counts
+        num_frames = len(sim_results.monomer_ids)
+        count_series = np.zeros(num_frames, dtype=float)
+
+        #fill the counts using sim_results data
+        for i in range(num_frames):
+
+            #check whether we care about all monomers or just 1 type
+            if self.__mon_type is None:
+                count_series[i] = sim_results.monomer_frac[i] * self.__num_subunits
+            else:
+                #get the fraction of monomers of the given type
+                type_count = sim_results.monomer_types[i].count(self.__mon_type)
+                count_series[i] = type_count
+
+        return count_series
+    
+    def __process_clusters(self, sim_results):
+        #get a time series of the number of specified cluster states
+
         #extract the trajectories
         cluster_info = sim_results.cluster_info
 
@@ -594,13 +641,8 @@ class MicrostateData:
             else:
                 BTS+= traj.get_filtered_time_series(self.__conditions)
 
-        #add BTS to the total number of counts
-        if self.__microstate_counts is None:
-            self.__microstate_counts  = BTS
-        else:
-            self.__microstate_counts += BTS
+        return BTS
 
-        return
     
     def get_time_series(self, mass_weighted = True):
         #compute a time series of yield of the supplied microstate
@@ -624,6 +666,62 @@ class MicrostateData:
             return self.__mass_weighted_time_series
         else:
             return self.__time_series
+        
+
+class MicrostateCollectionData:
+    '''
+    Create a MicrostateData() object for each microstate provided. Return any quantities
+    about the microstate collections added over each of the supplied states. 
+    '''
+    def __init__(self, data_folder, microstates, recompute = False, verbose=False):
+
+        #parse the microstates input
+        self.__parse_microstates(microstates)
+
+        #create MicrostateData objects for each provided state
+        self.__track_microstates(data_folder, recompute, verbose)
+
+
+        return
+
+    def __parse_microstates(self, microstates):
+
+        #Check that this is a list. 
+        if isinstance(microstates, list):
+            self.__microstates = microstates
+            return
+        
+        #if single instance, make it a list
+        self.__microstates = [microstates]
+    
+        return
+    
+    def __track_microstates(self, data_folder, recompute, verbose):
+        #create a Data Object for each microstate
+
+        self.__microstates_data = []
+
+        for microstate in self.__microstates:
+
+            MD = MicrostateData(data_folder, microstate, recompute, verbose)
+            self.__microstates_data.append(MD)
+
+        return
+
+    def get_time_series(self, mass_weighted=True):
+        #return the sum of time series vectors for each supplied microstate
+
+        ts = self.__microstates_data[0].get_time_series()
+
+        for mdata in self.__microstates_data[1:]:
+            ts += mdata.get_time_series(mass_weighted=mass_weighted)
+
+        return ts
+    
+
+
+
+
 
 
 

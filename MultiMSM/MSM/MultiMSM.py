@@ -106,6 +106,7 @@ class MultiMSMBuilder:
         self.__base_paths  = []
         self.__short_paths = []
         self.__dis_paths   = []
+        self.__cont_paths  = []
 
         #get all the base paths
         self.__base_paths = self.__walk_directory(traj_folder)
@@ -117,8 +118,11 @@ class MultiMSMBuilder:
         if (os.path.exists(traj_folder+"dis/")):
             self.__dis_paths = self.__walk_directory(traj_folder+"dis/")
 
+        if (os.path.exists(traj_folder+"continue/")):
+            self.__cont_paths = self.__walk_directory(traj_folder+"continue/")
+
         self.__path_map = {"base":self.__base_paths, "short":self.__short_paths,
-                           "dis": self.__dis_paths}
+                           "dis": self.__dis_paths, "cont":self.__cont_paths}
         
         return
 
@@ -153,30 +157,37 @@ class MultiMSMBuilder:
 
         #case 1 - None -> use all files
         if num_files is None:
-            self.__file_counter['base']  = len(self.__base_paths)
-            self.__file_counter['short'] = len(self.__short_paths)
-            self.__file_counter['dis']   = len(self.__dis_paths)
+
+            for path_type in self.__path_map.keys():
+                self.__file_counter[path_type] = len(self.__path_map[path_type])
+
             return
 
         #case 2 - int -> use specified number of base files, none of the others
         if isinstance(num_files, int):
+
+            for path_type in self.__path_map.keys():
+                self.__file_counter[path_type] = 0
+
             self.__file_counter['base']  = min(len(self.__base_paths), num_files)
-            self.__file_counter['short'] = 0
-            self.__file_counter['dis']   = 0
+
             return
 
         #case 3 - dict -> copy values, ensuring they are valid
         if isinstance(num_files, dict):
-            self.__file_counter['base']  = 0
-            self.__file_counter['short'] = 0
-            self.__file_counter['dis']   = 0
 
+            #init all types to 0
+            for path_type in self.__path_map.keys():
+                self.__file_counter[path_type] = 0
+
+            #add the user specified counts for each path type
             for k,v in num_files.items():
                 self.__file_counter[k] = min(v, len(self.__path_map[k]))
 
-            if len(self.__file_counter.keys()) > 3:
+            #check if they supplied an unsupported path type
+            if len(self.__file_counter.keys()) > len(self.__path_map.keys()):
                 err_msg = "The supplied file count dict has invalid keys. "
-                err_msg+= "It only supports 'base', 'short', and 'dis'."
+                err_msg+= "It only supports 'base', 'short', 'dis', and 'cont'."
                 raise RuntimeError(err_msg)
 
             return
@@ -197,9 +208,13 @@ class MultiMSMBuilder:
         a = time.time()
 
         #do processing of each type of file
-        self.__do_processing(self.__base_paths,  self.__file_counter['base'],  cache)
-        self.__do_processing(self.__short_paths, self.__file_counter['short'], cache)
-        self.__do_processing(self.__dis_paths,   self.__file_counter['dis'],   cache)
+        for path_type in self.__path_map.keys():
+
+            #get the paths to the trajectories of each type and the number to use
+            paths     = self.__path_map[path_type]
+            num_paths = self.__file_counter[path_type]
+
+            self.__do_processing(paths, num_paths, cache)
 
         b = time.time()
             
@@ -213,6 +228,7 @@ class MultiMSMBuilder:
             print("Base trajectories processed: {}".format(self.__file_counter['base']))
             print("Short trajectories processed: {}".format(self.__file_counter['short']))
             print("Disassembly trajectories processed: {}".format(self.__file_counter['dis']))
+            print("Continued trajectories processed: {}".format(self.__file_counter['cont']))
             print("Processing took {}s. Average {}s per file\n".format(b-a, (b-a)/num_paths))
         
         return
@@ -424,6 +440,7 @@ class Collection:
         #TODO - either test the efficiency of this, or make it so that states always in map
         if start_index is None or end_index is None:
             return
+        
 
         #add a count to the appropriate MSM
         self.__add_count(start_index, end_index, msm_index)
@@ -857,6 +874,7 @@ class MultiMSMSolver:
         #for each divider, create an interval that is [d-frac*W_l,d+frac*W_r] where
         #d is the divider position, and W_i is the width of the bin to the left or right
         #of the divider. return a list of these intervals, including the div point
+
 
         transition_regions = []
 

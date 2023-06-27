@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 class BinOptimizer:
 
     def __init__(self, num_bins, lag, MM, traj_folder, initial_guess = None,
-                 fixed_indices = None, obj_norm = 2):
+                 fixed_indices = None, obj_norm = 2, target_size = 1):
 
         #set user inputs
         self._num_bins    = num_bins
@@ -32,6 +32,7 @@ class BinOptimizer:
             if isinstance(initial_guess, Discretization):
                 self._initial_guess = initial_guess
                 self._fixed_indices = []
+                self._num_bins = initial_guess.get_num_intervals()
                 if fixed_indices is not None:
                     self._fixed_indices = fixed_indices
 
@@ -49,7 +50,7 @@ class BinOptimizer:
             self._fixed_indices = []
 
         #variables for the target state - init as monomer
-        self._target_size = 1
+        self._target_size = target_size
         self._apply_target_settings()
 
         #variables for the output
@@ -140,12 +141,12 @@ class BinOptimizerSequential(BinOptimizer):
     '''
 
     def __init__(self, num_bins, lag, MM, traj_folder, initial_guess = None,
-                 fixed_indices = None, obj_norm = 2,
+                 fixed_indices = None, obj_norm = 2, target_size = 1,
                  num_sweeps = 1, samples_per_div = 4):
         
         #call the parent init
         super().__init__(num_bins, lag, MM, traj_folder, initial_guess, fixed_indices, 
-                         obj_norm)
+                         obj_norm, target_size)
 
         #variables for the optimization
         self._samples_per_div = samples_per_div + (samples_per_div%2)
