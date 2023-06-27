@@ -895,8 +895,8 @@ class MultiMSMSolver:
     def __get_matrix_base(self, current_mon_frac, t):
         #simply grab the transition matrix from this interval
 
-        index = self.get_msm_index(self.__fix_zero_one(current_mon_frac))
-        TM = self.get_transition_matrix(index)
+        index = self.__multiMSM.get_msm_index(self.__fix_zero_one(current_mon_frac))
+        TM = self.__multiMSM.get_transition_matrix(index)
 
         #add the index of this matrix to the indices dict
         self.__TM_indices[t] = [(index,1)]
@@ -922,7 +922,7 @@ class MultiMSMSolver:
 
         #if not in any region, return base TM
         if not in_region:
-            return self.__get_matrix_base(current_mon_frac)
+            return self.__get_matrix_base(current_mon_frac, t)
 
         #if we are in a region, construct the LC of transition matrices
         a = region[0]
@@ -936,8 +936,8 @@ class MultiMSMSolver:
             alpha = 0.5 + 0.5 * (current_mon_frac-c) / (b-c)
 
         #get the transition matrices to the left and right and compute LC
-        leftTM = self.get_transition_matrix(region_id+1)
-        rightTM = self.get_transition_matrix(region_id+2)
+        leftTM = self.__multiMSM.get_transition_matrix(region_id+1)
+        rightTM = self.__multiMSM.get_transition_matrix(region_id+2)
         TM = alpha * rightTM + (1-alpha) * leftTM
 
         #add the linear combination for this matrix to the index dict
