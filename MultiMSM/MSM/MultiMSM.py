@@ -791,7 +791,7 @@ class MultiMSMSolver:
         #return a copy of the full solution
         return self.__fke_soln.copy()
 
-    def get_FKE(self, T, p0 = None, frac = 0.25, target_index_set = None):
+    def get_FKE(self, T, p0 = None, frac = 0.25, target_index_list = None):
         #return the solution to the FKE up to the specified time and given 
         #initial distribution 
         #if target_index set is None, return full thing. Otherwise return the
@@ -802,15 +802,72 @@ class MultiMSMSolver:
             self.solve_FKE(T, p0=p0, frac=frac)
 
         #check if target index is not None and sum the probabilities
-        if target_index_set is not None:
-            if not isinstance(target_index_set, list):
-                target_index_set = [target_index_set]
+        if target_index_list is not None:
+            if not isinstance(target_index_list, list):
+                target_index_list = [target_index_list]
 
-            return self.__fke_soln[:,target_index_set].sum(1)
+            return self.__fke_soln[:,target_index_list].sum(1)
 
         #return the full solution
         return self.__fke_soln
 
+    def solve_BKE(self, T, target_index_list):
+        '''
+        Solve the backward kolmogorov equation beginning at time T+1 and going back
+        to time 0. Return full time dependent solution matrix.
+
+        It is assumed that the reward function for this equation is the indicator
+        vector for a target set of states, as its intended use is to maximize the
+        associated probability. The solution at T+1 will be init with 1s for states
+        in target_index_list, and 0s otherwise. 
+
+        TODO: generalize to other reward functions?
+
+        Note: The backwards propogation requires that the forward equation has been 
+        solved to know which transition matrix to use. 
+
+        '''
+
+        #init, error check, and set up the final condition for the BKE
+        self.__setup_BKE(T, target_index_list)
+
+        #Solve BKE backwards in time
+        for t in range(T-1, -1, -1):
+
+            #get the transition matrix from forward evolution
+            TM = self.__reconstructTM(t)
+
+            #update the soln to previous time
+            self.__bke_soln[:, t] = TM * self.__bke_soln[:, t+1] 
+
+
+        return self.__bke_soln.copy()
+
+    def verify_invariance(self, verbose=False):
+        #verify that the inner product of forward and backward solutions are
+        #invariant in time
+
+        #init storage for the time dependent inner product
+        T = self.__fke_soln.shape[0]
+        invariant_product = np.zeros(T, dtype=float)
+        S = 0 # sum consecutive differences
+
+        for t in range(T):
+
+            f_vec = self.__fke_soln[t,:]
+            b_vec = self.__bke_soln[:,t]
+            invariant_product[t] = np.inner(f_vec, b_vec)
+            
+            if t>0:
+                S += np.abs(invariant_product[t]-invariant_product[t-1])
+
+        invariant = (S < 1e-10)
+        print("Testing Invariance of Inner Product...")
+        print("Total deviation: {}, Invariant: {}".format(S, invariant))
+        if verbose:
+            print("Inner product:\n",invariant_product)
+     
+        return
 
     def __setup_initial_condition(self, p0):
         #determine the IC and do type and bounds checking
@@ -856,6 +913,7 @@ class MultiMSMSolver:
         if self.__current_p0 != p0:
             self.__fke_soln = np.zeros((T+1, self.__num_states), dtype=float)
             self.__fke_soln[0, :] = init_dist
+
             #clear the index dict
             self.__TM_indices.clear()
             return 0
@@ -868,6 +926,37 @@ class MultiMSMSolver:
 
         #if we get here, we need to continue the solve, return len of soln
         return self.__fke_soln.shape[0]
+
+    def __setup_BKE(self, T, target_index_list):
+        #check that conditions are satisfied to do backwards solve and set up
+
+        #check that the forward equation is solved
+        if self.__fke_soln is None or self.__current_p0 == -1:
+            raise RuntimeError("FKE solution is missing. Solve the FKE first.")
+
+        #check that the forward equation is solved to the requested final time
+        solved_to = self.__fke_soln.shape[0]
+        if solved_to <= T:
+            err_msg = "FKE solved to lag {}. ".format(solved_to-1)
+            err_msg+= "BKE requested at lag {}. ".format(T)
+            err_msg+= "FKE needs to be solved longer. "
+            raise RuntimeError(err_msg)
+
+        #ensure target indices are in a list for vectorized init
+        if not isinstance(target_index_list, list):
+            target_index_list = [target_index_list]
+
+        #check that the list is non-empty, give warning of trivial soln
+        if len(target_index_list) == 0:
+            err_msg = "No target states have been supplied. This will result "
+            err_msg+= "in a trivial zero solution, which we assume is unintended."
+            raise RuntimeError(err_msg)
+
+        #initialize the BKE solution w/ 1s in target indices
+        self.__bke_soln = np.zeros((self.__num_states, T+1), dtype='float')
+        self.__bke_soln[target_index_list, T] = 1.0
+
+        return
 
 
     def __make_frac_bins(self, frac, cutoffs):
@@ -965,6 +1054,24 @@ class MultiMSMSolver:
             raise RuntimeError(err_msg)
 
         return
+
+    def __reconstructTM(self, t):
+        #reconstruct transition matrix that was used to solve the forward eqn
+        #from t to t+1
+
+        #get the list of weights and indices
+        factors = self.__TM_indices[t]
+
+        #if there is only one matrix, return that
+        if len(factors) == 1:
+            return self.__multiMSM.get_transition_matrix(factors[0][0])
+
+        #otherwise, construct the linear combination
+        left = self.__multiMSM.get_transition_matrix(factors[0][0]) * factors[0][1]
+        right= self.__multiMSM.get_transition_matrix(factors[1][0]) * factors[1][1]
+
+        return left + right
+    
 
         
 
