@@ -591,11 +591,15 @@ class MicrostateData:
             frac  = sim_results.monomer_frac[0]
             self.__num_subunits = int(count / frac)
 
-        #do sepaate processing for monomer or cluster
+        #do separate processing for monomer or cluster
         if self.__is_monomer:
             counts = self.__process_monomer(sim_results)
         else:
             counts = self.__process_clusters(sim_results)
+
+            #skips this file if there are no clusters
+            if counts is None:
+                return
 
         #add BTS to the total number of counts
         if self.__microstate_counts is None:
@@ -630,6 +634,10 @@ class MicrostateData:
 
         #extract the trajectories
         cluster_info = sim_results.cluster_info
+
+        #check for case of a file with no trajectories
+        if len(cluster_info) == 0:
+            return None
 
         #loop over each trajectory, get a filtered boolean time series, add them
         for traj_num in range(len(cluster_info)):
