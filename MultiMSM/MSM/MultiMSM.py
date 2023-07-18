@@ -107,6 +107,7 @@ class MultiMSMBuilder:
         self.__short_paths = []
         self.__dis_paths   = []
         self.__cont_paths  = []
+        self.__long_paths  = []
 
         #get all the base paths
         self.__base_paths = self.__walk_directory(traj_folder)
@@ -121,8 +122,12 @@ class MultiMSMBuilder:
         if (os.path.exists(traj_folder+"continue/")):
             self.__cont_paths = self.__walk_directory(traj_folder+"continue/")
 
+        if (os.path.exists(traj_folder+"long/")):
+            self.__long_paths = self.__walk_directory(traj_folder+"long/")
+
         self.__path_map = {"base":self.__base_paths, "short":self.__short_paths,
-                           "dis": self.__dis_paths, "cont":self.__cont_paths}
+                           "dis": self.__dis_paths, "cont":self.__cont_paths,
+                           "long": self.__long_paths}
         
         return
 
@@ -187,7 +192,7 @@ class MultiMSMBuilder:
             #check if they supplied an unsupported path type
             if len(self.__file_counter.keys()) > len(self.__path_map.keys()):
                 err_msg = "The supplied file count dict has invalid keys. "
-                err_msg+= "It only supports 'base', 'short', 'dis', and 'cont'."
+                err_msg+= "It only supports 'base', 'short', 'long', 'dis', and 'cont'."
                 raise RuntimeError(err_msg)
 
             return
@@ -227,6 +232,7 @@ class MultiMSMBuilder:
             print("Processing complete.")
             print("Base trajectories processed: {}".format(self.__file_counter['base']))
             print("Short trajectories processed: {}".format(self.__file_counter['short']))
+            print("Long trajectories processed: {}".format(self.__file_counter['long']))
             print("Disassembly trajectories processed: {}".format(self.__file_counter['dis']))
             print("Continued trajectories processed: {}".format(self.__file_counter['cont']))
             print("Processing took {}s. Average {}s per file\n".format(b-a, (b-a)/num_paths))
