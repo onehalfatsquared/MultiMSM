@@ -141,7 +141,8 @@ class BinOptimizerSequential(BinOptimizer):
     '''
 
     def __init__(self, num_bins, lag, MM, traj_folder, initial_guess = None,
-                 fixed_indices = None, obj_norm = 2, target_size = 1,
+                 fixed_indices = None, num_files = None,
+                 obj_norm = 2, target_size = 1,
                  num_sweeps = 1, samples_per_div = 4):
         
         #call the parent init
@@ -157,7 +158,8 @@ class BinOptimizerSequential(BinOptimizer):
 
         #construct the model builder object and create the initial model
         self._model_builder = MultiMSMBuilder(self._initial_guess, self._MM, 
-                                              self._traj_folder, self._lag)
+                                              self._traj_folder, self._lag,
+                                              num_files=num_files)
         self._model0 = self._model_builder.make()
         self._obj0   = self._eval_obj(self._model0)
 
