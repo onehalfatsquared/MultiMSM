@@ -8,8 +8,12 @@ Carlo search over bin placements at fixed number of bins.
 import numpy as np
 
 from MultiMSM.MSM.MultiMSM import MultiMSMBuilder
+from MultiMSM.MSM.MultiMSM import MultiMSMSolver
 from MultiMSM.util.sampling_data import ClusterSizeData
+from MultiMSM.util.sampling_data import MicrostateCollectionData
 from MultiMSM.util.discretization import Discretization
+
+from MultiMSM.util.state import TargetStates
 
 import matplotlib.pyplot as plt
 
@@ -18,7 +22,8 @@ import matplotlib.pyplot as plt
 class BinOptimizer:
 
     def __init__(self, num_bins, lag, MM, traj_folder, initial_guess = None,
-                 fixed_indices = None, obj_norm = 2, target_size = 1):
+                 fixed_indices = None, obj_norm = 2, target_size = 1,
+                 target_states = None):
 
         #set user inputs
         self._num_bins    = num_bins
@@ -49,9 +54,9 @@ class BinOptimizer:
             self._initial_guess = disc 
             self._fixed_indices = []
 
-        #variables for the target state - init as monomer
-        self._target_size = target_size
-        self._apply_target_settings()
+        #variables for the target state
+        self._target_size = None
+        self._manage_target_settings(target_size, target_states)
 
         #variables for the output
         self._best_obj  = 1000
@@ -60,16 +65,43 @@ class BinOptimizer:
 
         return
     
-    def set_target(self, size):
+    def _manage_target_settings(self, target_size, target_states):
+        #set the target state settings via the supplied input
+
+        #if target states is None, use size. Otherwise, use states
+        if target_states is None:
+            self.set_target_size(target_size)
+            return
+
+        #if we reach here, determine what was given as input for target_states
+        if isinstance(target_states, list):
+            target_indices = target_states
+        elif isinstance(target_states, TargetStates):
+            target_indices = target_states.get_indices()
+        else:
+            err_msg = "Please provide either a list of indices for target_states "
+            err_msg+= "or a TargetStates object."
+
+        #set the target using these indices
+        self.set_target_indices(target_indices)
+        return
+    
+    def set_target_size(self, size):
         #set the intermediate size to minimze distance for. apply the settings
 
         self._target_size = size
+        self._apply_size_settings()
+        return
+    
+    def set_target_indices(self, indices):
+
+        self._target_indices = indices
         self._apply_target_settings()
         return
     
-    def _apply_target_settings(self):
-        #compute the exact solution for the given target, and the corresponding indices
-        #in the Markov state model
+    def _apply_size_settings(self):
+        #make a ClusterSizeData object to extract the 'exact' solution for the
+        #given cluster size 
 
         #get the "exact" solution from sampling data
         S = ClusterSizeData(self._traj_folder, recompute=False)
@@ -84,26 +116,53 @@ class BinOptimizer:
 
         return
     
+    def _apply_target_settings(self):
+        #make a MicrostateCollectionData object to extract the 'exact' solution for 
+        #the summed yield of all state indices provided
+
+        #convert indices into actual states
+        target_states = [self._MM.index_to_state(i) for i in self._target_indices]
+
+        #get the data for the desired states and make a time series of yield
+        MS = MicrostateCollectionData(self._traj_folder, target_states)
+        self._exact = MS.get_time_series()
+
+        #get the length of sampling data to know how many lags to go for
+        self._num_lags = len(self._exact)
+
+        return
+    
     def _solve_model(self, model):
         #solve the FKE for the current model 
 
+        #set final time, initial condition, and targets for the solve
         final_time   = round(self._num_lags/self._lag)
-        # soln         = model.get_FKE(T=final_time, p0="monomer_start")
-        soln         = model.solve_FKE_smooth(T=final_time, p0="monomer_start", frac=0.25)
-        target_prob  = soln[:,self._target_indices].sum(1)
+        ms           = "monomer_start"
+        target       = self._target_indices
 
+        #create the solver 
+        solver = MultiMSMSolver(model)
+
+        #compute and return target probability time series
+        target_prob = solver.get_FKE(final_time, p0=ms, frac=0.25, 
+                                     target_index_list = target)
         return target_prob
 
     def _eval_obj(self, model):
         #evaluate the objective fn, norm of relative error b/w FKE solve and sampling 
         # average
         
+        #solve the current model
         target_prob = self._solve_model(model)
 
+        #init and compute the relative error between MSM and sampling
         rel_error = np.zeros(self._num_lags, dtype=float)
         for i in range(self._num_lags):
 
+            #get absolute error
             abs_error = target_prob[i]-self._exact[i]
+
+            #scale to get rel. error. use absolute if true solution is very small
             if self._exact[i] > 1e-5:
                 rel_error[i] = (abs_error/self._exact[i])
             else:
@@ -142,12 +201,12 @@ class BinOptimizerSequential(BinOptimizer):
 
     def __init__(self, num_bins, lag, MM, traj_folder, initial_guess = None,
                  fixed_indices = None, num_files = None,
-                 obj_norm = 2, target_size = 1,
+                 obj_norm = 2, target_size = 1, target_states = None,
                  num_sweeps = 1, samples_per_div = 4):
         
         #call the parent init
         super().__init__(num_bins, lag, MM, traj_folder, initial_guess, fixed_indices, 
-                         obj_norm, target_size)
+                         obj_norm, target_size, target_states)
 
         #variables for the optimization
         self._samples_per_div = samples_per_div + (samples_per_div%2)

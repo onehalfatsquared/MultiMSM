@@ -410,83 +410,83 @@ class MicrostateData:
     def __init__(self, data_folder, microstate, recompute = False, verbose=False):
 
         #parse and name the microstate being supplied 
-        self.__parse_microstate(microstate)
+        self._parse_microstate(microstate)
 
         #set location for storage of this class based on name of data folder
-        self.__set_storage_info(data_folder)
+        self._set_storage_info(data_folder)
 
         #unless recompute, try to load existing class object
         if not recompute:
             try:
 
-                self.__load(self.__storage_location)
+                self._load(self._storage_location)
 
             except:
 
-                print("Could not load object at {}. Computing from scratch.".format(self.__storage_location))
-                self.__init_log()
+                print("Could not load object at {}. Computing from scratch.".format(self._storage_location))
+                self._init_log()
 
         else:
 
-            self.__init_log()
+            self._init_log()
 
-        self.__verbose = verbose
+        self._verbose = verbose
 
         #process the files in the data folder
-        self.__process_files(data_folder)
+        self._process_files(data_folder)
 
         return
     
-    def __del__(self):
+    def _del_(self):
         #if deleting, and the object has been updated without being saved, save it. 
 
-        if self.__was_loaded and self.__been_updated:
-            self.__save()
+        if self._was_loaded and self._been_updated:
+            self._save()
 
         return
 
-    def __save(self):
+    def _save(self):
 
-        with open(self.__storage_location,'wb') as outfile:
+        with open(self._storage_location,'wb') as outfile:
             pickle.dump(self, outfile)
-            if self.__verbose:
-                print("Microstate Data saved to {}".format(self.__storage_location))
+            if self._verbose:
+                print("Microstate Data saved to {}".format(self._storage_location))
 
         return
 
-    def __load(self, filepath):
+    def _load(self, filepath):
 
         with open(filepath,'rb') as infile:
-            self.__dict__ = pickle.load(infile).__dict__
-            self.__been_updated = False
-            self.__was_loaded   = True
-            if self.__verbose:
-                print("Microstate Data loaded from {}".format(self.__storage_location))
+            self._dict_ = pickle.load(infile)._dict_
+            self._been_updated = False
+            self._was_loaded   = True
+            if self._verbose:
+                print("Microstate Data loaded from {}".format(self._storage_location))
 
         return
     
     
-    def __parse_microstate(self, microstate):
+    def _parse_microstate(self, microstate):
         #determine which kind of microstate was supplied, construct condition from it
         #construct a unique name for this state and extract its size for weighting
 
-        self.__is_monomer   = False
-        self.__mon_type     = None
+        self._is_monomer   = False
+        self._mon_type     = None
 
         if isinstance(microstate, dict):
 
-            self.__conditions = microstate
+            self._conditions = microstate
 
         elif isinstance(microstate, SAASH.util.state.State):
 
-            self.__conditions = microstate.get_all_properties()
+            self._conditions = microstate.get_all_properties()
 
         elif microstate.get_size() == 1:
 
-            self.__conditions = microstate.get_all_properties()
-            self.__is_monomer = True
-            if 'type' in self.__conditions:
-                self.__mon_type = self.__conditions['type']
+            self._conditions = microstate.get_all_properties()
+            self._is_monomer = True
+            if 'type' in self._conditions:
+                self._mon_type = self._conditions['type']
 
         else:
 
@@ -496,34 +496,34 @@ class MicrostateData:
             raise TypeError(err_msg)
         
         #get a name for the microstate for caching using condition values
-        self.__name_microstate()
+        self._name_microstate()
 
         #store the size of the microstate
-        self.__ms_size = self.__conditions['num_bodies']
+        self._ms_size = self._conditions['num_bodies']
 
         return
     
-    def __name_microstate(self):
+    def _name_microstate(self):
         #get a name to uniquely identify the microstate - sort dict keys and use values
 
         #conditions can be a dict containing dicts. flatten it
-        flat_dict = flatten_dict(self.__conditions)
+        flat_dict = flatten_dict(self._conditions)
 
         #sort the flattened dict by key
         keys = list(flat_dict.keys())
         keys.sort()
 
         #grab the values in sorted order, construct string
-        self.__ms_name = "State_"
+        self._ms_name = "State_"
         for key in keys:
-            self.__ms_name += (str(flat_dict[key])+"_")
+            self._ms_name += (str(flat_dict[key])+"_")
 
         #strip off trailing underscore
-        self.__ms_name = self.__ms_name.rstrip("_")
+        self._ms_name = self._ms_name.rstrip("_")
 
         return 
 
-    def __set_storage_info(self, data_folder):
+    def _set_storage_info(self, data_folder):
 
         #check if the directories /data/ and /data/sampling/ exist
         if not os.path.isdir(data_folder+"/data/"):
@@ -533,51 +533,51 @@ class MicrostateData:
             os.makedirs(data_folder+"/data/sampling/")
 
         #grab the parameter identifiers from the data folder and set storage loc
-        self.__storage_location  = data_folder+"data/sampling/"
-        self.__storage_location += "cache_" + self.__ms_name + ".msd"
+        self._storage_location  = data_folder+"data/sampling/"
+        self._storage_location += "cache_" + self._ms_name + ".msd"
 
         return
 
-    def __init_log(self):
+    def _init_log(self):
         #make a new processed file log
 
-        self.__been_updated = True
-        self.__was_loaded   = False
-        self.__processed    = [] 
-        self.__num_subunits = None
+        self._been_updated = True
+        self._was_loaded   = False
+        self._processed    = [] 
+        self._num_subunits = None
 
         #init variables to store the returned time series
-        self.__microstate_counts = None
-        self.__time_series       = None
-        self.__mass_weighted_time_series  = None
+        self._microstate_counts = None
+        self._time_series       = None
+        self._mass_weighted_time_series  = None
         return
 
-    def __process_files(self, data_folder):
+    def _process_files(self, data_folder):
         #loop over all .cl files in the folder, do analysis
 
         #get a sorted list of all the .cl files
         all_files = glob.glob(data_folder + '/*/*.cl', recursive=True)
         all_files.sort()
-        if self.__verbose:
+        if self._verbose:
             print("Found {} '.cl' files in {}. Processing new files...".format(len(all_files), data_folder))
 
         #check if each file is already processed, if not, process it
         for cluster_file in all_files:
 
-            if cluster_file not in self.__processed:
-                if self.__verbose:
+            if cluster_file not in self._processed:
+                if self._verbose:
                     print("Processing new file {}".format(cluster_file))
-                self.__process(cluster_file)
-                self.__processed.append(cluster_file)
-                self.__been_updated = True
+                self._process(cluster_file)
+                self._processed.append(cluster_file)
+                self._been_updated = True
 
         #save if update was performed 
-        if self.__been_updated:
-            self.__save()
+        if self._been_updated:
+            self._save()
 
         return
     
-    def __process(self, cluster_file):
+    def _process(self, cluster_file):
         #extract the cluster info objects, filter them w/ conditions, sum
 
         #get the number of subunits from the simulation
@@ -586,30 +586,30 @@ class MicrostateData:
             sim_results = pickle.load(f)
 
         #set number of subunits if not set yet
-        if self.__num_subunits is None:
+        if self._num_subunits is None:
             count = len(sim_results.monomer_ids[0])
             frac  = sim_results.monomer_frac[0]
-            self.__num_subunits = int(count / frac)
+            self._num_subunits = int(count / frac)
 
         #do separate processing for monomer or cluster
-        if self.__is_monomer:
-            counts = self.__process_monomer(sim_results)
+        if self._is_monomer:
+            counts = self._process_monomer(sim_results)
         else:
-            counts = self.__process_clusters(sim_results)
+            counts = self._process_clusters(sim_results)
 
             #skips this file if there are no clusters
             if counts is None:
                 return
 
         #add BTS to the total number of counts
-        if self.__microstate_counts is None:
-            self.__microstate_counts  = counts
+        if self._microstate_counts is None:
+            self._microstate_counts  = counts
         else:
-            self.__microstate_counts += counts
+            self._microstate_counts += counts
 
         return
 
-    def __process_monomer(self, sim_results):
+    def _process_monomer(self, sim_results):
         #get a time series of the number of monomers for this file
 
         #init storage for monomer fraction counts
@@ -620,16 +620,16 @@ class MicrostateData:
         for i in range(num_frames):
 
             #check whether we care about all monomers or just 1 type
-            if self.__mon_type is None:
-                count_series[i] = sim_results.monomer_frac[i] * self.__num_subunits
+            if self._mon_type is None:
+                count_series[i] = sim_results.monomer_frac[i] * self._num_subunits
             else:
                 #get the fraction of monomers of the given type
-                type_count = sim_results.monomer_types[i].count(self.__mon_type)
+                type_count = sim_results.monomer_types[i].count(self._mon_type)
                 count_series[i] = type_count
 
         return count_series
     
-    def __process_clusters(self, sim_results):
+    def _process_clusters(self, sim_results):
         #get a time series of the number of specified cluster states
 
         #extract the trajectories
@@ -645,9 +645,9 @@ class MicrostateData:
             traj = cluster_info[traj_num]
 
             if traj_num == 0:
-                BTS = traj.get_filtered_time_series(self.__conditions)
+                BTS = traj.get_filtered_time_series(self._conditions)
             else:
-                BTS+= traj.get_filtered_time_series(self.__conditions)
+                BTS+= traj.get_filtered_time_series(self._conditions)
 
         return BTS
 
@@ -655,25 +655,25 @@ class MicrostateData:
     def get_time_series(self, mass_weighted = True):
         #compute a time series of yield of the supplied microstate
 
-        if len(self.__processed) == 0:
+        if len(self._processed) == 0:
             return None
 
         #if an update has occured, recompute normalized distributions
-        if self.__been_updated or self.__time_series is None:
+        if self._been_updated or self._time_series is None:
             
             #non mass-weighted
-            self.__time_series = self.__microstate_counts / len(self.__processed)
+            self._time_series = self._microstate_counts / len(self._processed)
 
             #mass-weighted
-            scale_factor = self.__ms_size / self.__num_subunits
-            self.__mass_weighted_time_series  = self.__time_series * scale_factor
+            scale_factor = self._ms_size / self._num_subunits
+            self._mass_weighted_time_series  = self._time_series * scale_factor
 
 
         #return the corresponding distribution
         if mass_weighted:
-            return self.__mass_weighted_time_series
+            return self._mass_weighted_time_series
         else:
-            return self.__time_series
+            return self._time_series
         
 
 class MicrostateCollectionData:
@@ -684,44 +684,44 @@ class MicrostateCollectionData:
     def __init__(self, data_folder, microstates, recompute = False, verbose=False):
 
         #parse the microstates input
-        self.__parse_microstates(microstates)
+        self._parse_microstates(microstates)
 
         #create MicrostateData objects for each provided state
-        self.__track_microstates(data_folder, recompute, verbose)
+        self._track_microstates(data_folder, recompute, verbose)
 
 
         return
 
-    def __parse_microstates(self, microstates):
+    def _parse_microstates(self, microstates):
 
         #Check that this is a list. 
         if isinstance(microstates, list):
-            self.__microstates = microstates
+            self._microstates = microstates
             return
         
         #if single instance, make it a list
-        self.__microstates = [microstates]
+        self._microstates = [microstates]
     
         return
     
-    def __track_microstates(self, data_folder, recompute, verbose):
+    def _track_microstates(self, data_folder, recompute, verbose):
         #create a Data Object for each microstate
 
-        self.__microstates_data = []
+        self._microstates_data = []
 
-        for microstate in self.__microstates:
+        for microstate in self._microstates:
 
             MD = MicrostateData(data_folder, microstate, recompute, verbose)
-            self.__microstates_data.append(MD)
+            self._microstates_data.append(MD)
 
         return
 
     def get_time_series(self, mass_weighted=True):
         #return the sum of time series vectors for each supplied microstate
 
-        ts = self.__microstates_data[0].get_time_series()
+        ts = self._microstates_data[0].get_time_series()
 
-        for mdata in self.__microstates_data[1:]:
+        for mdata in self._microstates_data[1:]:
             ts += mdata.get_time_series(mass_weighted=mass_weighted)
 
         return ts
