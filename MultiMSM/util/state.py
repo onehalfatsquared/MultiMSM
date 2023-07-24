@@ -293,7 +293,83 @@ class MacrostateMap:
             output_indices += indices
             
             if verbose:
+                print("Listing all states of size {}...".format(size))
                 for index in indices:
                     print("Index {}, {}".format(index, self.__toState[index]))
+                print()
 
         return output_indices
+    
+
+class TargetStates:
+
+    '''
+    This class keeps track of the state or states of interest for a particular 
+    calculation. Has arrays of the state indices and can construct the State from 
+    this.
+
+    States can be manually added, either by State or by index. There is also a query 
+    option that takes in a state size, outputs all states indices with that size, and 
+    then asks the user if they want to add any states to the class. 
+    '''
+
+    def __init__(self, MM, target_indices = []):
+        
+        #store the map for later state indexing
+        self.__macrostate_map = MM
+
+        #create set to store indices of states added
+        self.__target_indices = set()
+        self.add_indices(target_indices)
+
+        return
+    
+    def add_indices(self, indices):
+        #adds supplied indices to the target set
+
+        for index in indices:
+            self.__target_indices.add(index)
+
+        return
+    
+    def get_indices(self):
+
+        return list(self.__target_indices)
+    
+    def get_states(self):
+
+        return [self.__macrostate_map.index_to_state(index) for index in self.__target_indices]
+    
+    def query(self, size):
+        #query the macrostate map for all states of a given size. Prompt user to add
+        #their desired states from this list
+
+        #print out all states of this size
+        self.__macrostate_map.filter_by_size(size, verbose=True)
+
+        #ask the user for list of indices to add
+        msg = "\nProvide a space separated list of indices you would like to add...\n"
+        to_add = input(msg)
+
+        #parse the user input at spaces
+        to_add = to_add.split(" ")
+
+        #try to convert every entry to int, give error if fail
+        try:
+            to_add = [int(index) for index in to_add]
+        except:
+            err_msg = "Could not convert user input to int. Make sure you supply a "
+            err_msg+= "space separated list of integers."
+            raise TypeError(err_msg)
+        
+        #on success, add to the indices
+        self.add_indices(to_add)
+
+        return
+        
+
+
+
+
+
+
