@@ -437,7 +437,7 @@ class MicrostateData:
 
         return
     
-    def _del_(self):
+    def __del__(self):
         #if deleting, and the object has been updated without being saved, save it. 
 
         if self._was_loaded and self._been_updated:
@@ -457,7 +457,7 @@ class MicrostateData:
     def _load(self, filepath):
 
         with open(filepath,'rb') as infile:
-            self._dict_ = pickle.load(infile)._dict_
+            self.__dict__ = pickle.load(infile).__dict__
             self._been_updated = False
             self._was_loaded   = True
             if self._verbose:
