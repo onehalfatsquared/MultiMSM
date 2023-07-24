@@ -409,6 +409,8 @@ class MicrostateData:
 
     def __init__(self, data_folder, microstate, recompute = False, verbose=False):
 
+        self._verbose = verbose
+        
         #parse and name the microstate being supplied 
         self._parse_microstate(microstate)
 
@@ -429,8 +431,6 @@ class MicrostateData:
         else:
 
             self._init_log()
-
-        self._verbose = verbose
 
         #process the files in the data folder
         self._process_files(data_folder)

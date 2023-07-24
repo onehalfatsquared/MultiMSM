@@ -21,16 +21,24 @@ import matplotlib.pyplot as plt
 
 class BinOptimizer:
 
-    def __init__(self, num_bins, lag, MM, traj_folder, initial_guess = None,
-                 fixed_indices = None, obj_norm = 2, target_size = 1,
-                 target_states = None):
+    def __init__(self, num_bins, lag, MM, traj_folder, final_time = None,
+                 initial_guess = None, fixed_indices = None, obj_norm = 2, 
+                 target_size = 1, target_states = None,
+                 compare_long = False):
 
         #set user inputs
         self._num_bins    = num_bins
         self._lag         = lag
         self._MM          = MM
         self._traj_folder = traj_folder
+        self._samples_loc = traj_folder
         self._obj_norm    = obj_norm
+        self._final_time  = final_time
+
+        #if the comparison is over the long trajectories, overwrite sample location
+        self._compare_long = compare_long
+        if compare_long:
+            self._samples_loc += "long/"
 
         #check for initial guess and right type
         if initial_guess is not None:
@@ -54,9 +62,10 @@ class BinOptimizer:
             self._initial_guess = disc 
             self._fixed_indices = []
 
-        #variables for the target state
+        #set variables for the target state, create comparison results, setup solver
         self._target_size = None
         self._manage_target_settings(target_size, target_states)
+        self._setup_solve()
 
         #variables for the output
         self._best_obj  = 1000
@@ -104,7 +113,7 @@ class BinOptimizer:
         #given cluster size 
 
         #get the "exact" solution from sampling data
-        S = ClusterSizeData(self._traj_folder, recompute=False)
+        S = ClusterSizeData(self._samples_loc, recompute=False)
         dists = S.get_normalized_distribution(mass_weighted=True)
         self._exact = dists[:,self._target_size-1]
 
@@ -124,7 +133,7 @@ class BinOptimizer:
         target_states = [self._MM.index_to_state(i) for i in self._target_indices]
 
         #get the data for the desired states and make a time series of yield
-        MS = MicrostateCollectionData(self._traj_folder, target_states)
+        MS = MicrostateCollectionData(self._samples_loc, target_states)
         self._exact = MS.get_time_series()
 
         #get the length of sampling data to know how many lags to go for
@@ -132,20 +141,42 @@ class BinOptimizer:
 
         return
     
+    def _setup_solve(self):
+        #setup all variables needed to do a FKE solve from the MSM
+
+        #set final time based on user inputs
+        if self._final_time is None: 
+            #use full length of the specified data
+            self._final_time = self._num_lags
+        else:
+            #check if the user given final time is longer than the data
+            self._final_time = int(self._final_time)
+            if self._final_time > self._num_lags:
+
+                #give a warning that the specified time is too long
+                warn_msg = "Warning: specified final time {} is greater than the final ".format(self._final_time)
+                warn_msg+= "time from sampling {}, using files from {}.\n".format(self._num_lags, self._samples_loc)
+                warn_msg+= "Continuing with final time {}".format(self._num_lags)
+                print(warn_msg)
+
+                #cap out the time at the full sampling time
+                self._final_time = self._num_lags
+        
+        #set the actual final time in sim units instead of lags
+        self._Tf   = self._final_time / self._lag
+
+        #set all monomer initial condition
+        self._msIC = "monomer_start"
+
+        return
+    
     def _solve_model(self, model):
         #solve the FKE for the current model 
 
-        #set final time, initial condition, and targets for the solve
-        final_time   = round(self._num_lags/self._lag)
-        ms           = "monomer_start"
-        target       = self._target_indices
-
-        #create the solver 
-        solver = MultiMSMSolver(model)
-
-        #compute and return target probability time series
-        target_prob = solver.get_FKE(final_time, p0=ms, frac=0.25, 
-                                     target_index_list = target)
+        #create the solver and solve the FKE with given conditions
+        solver      = MultiMSMSolver(model)
+        target_prob = solver.get_FKE(self._final_time, p0=self._msIC, frac=0.25, 
+                                     target_index_list = self._target_indices)
         return target_prob
 
     def _eval_obj(self, model):
@@ -156,8 +187,8 @@ class BinOptimizer:
         target_prob = self._solve_model(model)
 
         #init and compute the relative error between MSM and sampling
-        rel_error = np.zeros(self._num_lags, dtype=float)
-        for i in range(self._num_lags):
+        rel_error = np.zeros(self._final_time, dtype=float)
+        for i in range(self._final_time):
 
             #get absolute error
             abs_error = target_prob[i]-self._exact[i]
@@ -199,14 +230,16 @@ class BinOptimizerSequential(BinOptimizer):
     be even, else the midpoint would re-sample the same configuration. 
     '''
 
-    def __init__(self, num_bins, lag, MM, traj_folder, initial_guess = None,
-                 fixed_indices = None, num_files = None,
+    def __init__(self, num_bins, lag, MM, traj_folder, final_time = None,
+                 initial_guess = None, fixed_indices = None, num_files = None,
                  obj_norm = 2, target_size = 1, target_states = None,
+                 compare_long = False, 
                  num_sweeps = 1, samples_per_div = 4):
         
         #call the parent init
-        super().__init__(num_bins, lag, MM, traj_folder, initial_guess, fixed_indices, 
-                         obj_norm, target_size, target_states)
+        super().__init__(num_bins, lag, MM, traj_folder, final_time, initial_guess, 
+                         fixed_indices, obj_norm, target_size, target_states, 
+                         compare_long)
 
         #variables for the optimization
         self._samples_per_div = samples_per_div + (samples_per_div%2)
