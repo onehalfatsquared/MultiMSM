@@ -168,6 +168,11 @@ class BinOptimizer:
         #set all monomer initial condition
         self._msIC = "monomer_start"
 
+        #get the minimum fraction of monomers ever present
+        S = ClusterSizeData(self._samples_loc, recompute=False)
+        dists = S.get_normalized_distribution(mass_weighted=True)
+        self._min_mon = np.min(dists[0:self._final_time,0])
+
         return
     
     def _solve_model(self, model):
@@ -177,6 +182,7 @@ class BinOptimizer:
         solver      = MultiMSMSolver(model)
         target_prob = solver.get_FKE(self._final_time, p0=self._msIC, frac=0.25, 
                                      target_index_list = self._target_indices)
+        
         return target_prob
 
     def _eval_obj(self, model):
@@ -270,6 +276,10 @@ class BinOptimizerSequential(BinOptimizer):
             #loop over each divider
             for divider in range(self._num_dividers):
 
+                #if minimum mon fraction is greater than lower cutoff, skip this div
+                if self._test_skip(divider):
+                    continue
+
                 #get equally spaced test points to potentially replace this divider
                 test_points = self._get_test_points(divider)
 
@@ -347,6 +357,20 @@ class BinOptimizerSequential(BinOptimizer):
             self._modification_flag = True
 
         return
+    
+    def _test_skip(self, divider):
+        #test if the current divider is two less than the min mon fraction value
+
+        #subtract the min mon frac the current values of the cutoffs
+        diff = self._current_guess.get_cutoffs().copy() - self._min_mon
+
+        #check if the current div and the right div are negative or not
+        if diff[-1-divider-1]<0 and diff[-1-divider]<0:
+            return True
+
+        #if we reach here, the current bin is affected. return false for skip
+        return False
+
 
     
 
