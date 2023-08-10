@@ -286,6 +286,14 @@ class MultiMSMBuilder:
         #finalize the counting and return
         self.C.finalize_counts()
 
+        #check if there were any map misses and print warning if there were
+        misses = self.C.get_misses()
+        if misses > 0:
+            w_msg = "Warning: there were {} transitions that could ".format(misses)
+            w_msg+= "not be logged because the state was missing from the macrostate "
+            w_msg+= "map. Ensure all trajectory databases of states have been combined."
+            
+
         #print optional message detailing number of files used per type
         if verbose:
             num_paths = sum(self.__file_counter.values())
@@ -393,6 +401,9 @@ class Collection:
         self.__count_cache = defaultdict(defaultdict(int).copy)
         self.__freq_cache  = defaultdict(int)
         self.__clear_cache_flag = False
+
+        #keep log of how many transitions are from states not in the MM
+        self.__map_misses = 0
 
         return
     
@@ -525,8 +536,9 @@ class Collection:
         start_index = self.__macrostate_map.state_to_index(start_state)
         end_index   = self.__macrostate_map.state_to_index(end_state)
 
-        #TODO - either test the efficiency of this, or make it so that states always in map
-        if start_index is None or end_index is None:
+        #log if we find a state not in the map, skip this transition
+        if start_index == -1 or end_index == -2:
+            self.__map_misses += 1
             return
         
 
@@ -670,6 +682,10 @@ class Collection:
         self.__counts_finalized = True
 
         return
+    
+    def get_misses(self):
+
+        return self.__map_misses
     
     def is_finalized(self):
 
