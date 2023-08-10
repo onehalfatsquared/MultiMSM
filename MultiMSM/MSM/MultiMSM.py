@@ -105,19 +105,15 @@ class MultiMSMBuilder:
         #init storage for file paths of different run types
         self.__base_paths  = []
         self.__short_paths = []
-        self.__dis_paths   = []
         self.__cont_paths  = []
         self.__long_paths  = []
 
         #get all the base paths
         self.__base_paths = self.__walk_directory(traj_folder)
 
-        #check for existence of short and diss folders and gather from them
+        #check for existence of other folders and gather from them
         if (os.path.exists(traj_folder+"short/")):
             self.__short_paths = self.__walk_directory(traj_folder+"short/")
-
-        if (os.path.exists(traj_folder+"dis/")):
-            self.__dis_paths = self.__walk_directory(traj_folder+"dis/")
 
         if (os.path.exists(traj_folder+"continue/")):
             self.__cont_paths = self.__walk_directory(traj_folder+"continue/")
@@ -125,10 +121,37 @@ class MultiMSMBuilder:
         if (os.path.exists(traj_folder+"long/")):
             self.__long_paths = self.__walk_directory(traj_folder+"long/")
 
+        #handle frac paths separately, since there are subdirectories here
+        self.__gather_frac_paths(traj_folder)
+
         self.__path_map = {"base":self.__base_paths, "short":self.__short_paths,
-                           "dis": self.__dis_paths, "cont":self.__cont_paths,
-                           "long": self.__long_paths}
+                           "cont":self.__cont_paths, "long": self.__long_paths}
         
+        return
+    
+    def __gather_frac_paths(self, traj_folder):
+        #determine if there is a 'frac' folder, and populate the dict with its paths
+
+        #if no frac folder, just exit this function, set existence flag to false
+        if not (os.path.exists(traj_folder+"frac/")):
+            self.__frac_exists = False
+            return
+        
+        #set existence flag to true
+        self.__frac_exists = True
+
+        #init dicts to store paths and counts per frac interval
+        self.__frac_paths  = dict()
+        self.__frac_counts = dict()
+
+        #walk the directory to get all paths
+        all_frac_paths = self.__walk_directory(traj_folder+"frac/")
+
+        #separate the paths by frac value
+        for i in range(10):
+            self.__frac_paths[i] = [path for path in all_frac_paths if "frac{}".format(i) in path]  
+            self.__frac_counts[i]= len(self.__frac_paths[i])
+
         return
 
     def __walk_directory(self, dir_path):
@@ -158,7 +181,10 @@ class MultiMSMBuilder:
         #tell the constructor how many of each type of file to use
         #accepts None, an integer (# base paths), or a dict
 
+        self.__process_frac = False
+
         self.__file_counter = defaultdict(int)
+        self.__frac_counter = {}
 
         #case 1 - None -> use all files
         if num_files is None:
@@ -182,17 +208,41 @@ class MultiMSMBuilder:
         if isinstance(num_files, dict):
 
             #init all types to 0
+            self.__frac_counter = {i:0 for i in range(10)}
             for path_type in self.__path_map.keys():
                 self.__file_counter[path_type] = 0
 
             #add the user specified counts for each path type
             for k,v in num_files.items():
-                self.__file_counter[k] = min(v, len(self.__path_map[k]))
+                if k != "frac":
+                    self.__file_counter[k] = min(v, len(self.__path_map[k]))
+
+                #handle "frac" case separately
+                elif k == "frac" and self.__frac_exists:
+
+                    #set flag to process these trajectories
+                    self.__process_frac = True
+
+                    #check if we request 'all' or a subset
+                    if v == "all":
+                        self.__frac_counter = self.__frac_counts
+
+                    #cjeck if there is a dict holding a distribution of files to use
+                    elif isinstance(v, dict):
+                        for fk,fv in v.items():
+                            self.__frac_counter[fk] = min(fv, self.__frac_counts[fk])
+
+                    #print an error message that the 'frac' value provided is invalid
+                    else:
+                        err_msg = "The supplied value for the 'frac' key is invalid. "
+                        err_msg+= "It only supports 'all' or a dict of keys with "
+                        err_msg+= "integers 0:9 and values the number of files to use."
+                        raise RuntimeError(err_msg)
 
             #check if they supplied an unsupported path type
             if len(self.__file_counter.keys()) > len(self.__path_map.keys()):
                 err_msg = "The supplied file count dict has invalid keys. "
-                err_msg+= "It only supports 'base', 'short', 'long', 'dis', and 'cont'."
+                err_msg+= "It only supports 'base', 'short', 'long', 'cont' and 'frac'."
                 raise RuntimeError(err_msg)
 
             return
@@ -221,6 +271,16 @@ class MultiMSMBuilder:
 
             self.__do_processing(paths, num_paths, cache)
 
+        #process frac files separately if requested
+        if self.__process_frac:
+            for k,v in self.__frac_paths.items():
+
+                #filter to the number of requested paths
+                paths = v
+                num_paths = self.__frac_counter[k]
+
+                self.__do_processing(paths, num_paths, cache)
+
         b = time.time()
             
         #finalize the counting and return
@@ -230,11 +290,7 @@ class MultiMSMBuilder:
         if verbose:
             num_paths = sum(self.__file_counter.values())
             print("Processing complete.")
-            print("Base trajectories processed: {}".format(self.__file_counter['base']))
-            print("Short trajectories processed: {}".format(self.__file_counter['short']))
-            print("Long trajectories processed: {}".format(self.__file_counter['long']))
-            print("Disassembly trajectories processed: {}".format(self.__file_counter['dis']))
-            print("Continued trajectories processed: {}".format(self.__file_counter['cont']))
+            num_paths += self.__output_trajectory_details()
             print("Processing took {}s. Average {}s per file\n".format(b-a, (b-a)/num_paths))
         
         return
@@ -249,6 +305,32 @@ class MultiMSMBuilder:
             self.C.process_cluster_file(next_file, cache=cache)
 
         return
+    
+    def __output_trajectory_details(self):
+        #print a summary of how many trajectories were processed among each type
+
+        #init number of frac trajectories processed
+        total_frac = 0
+
+        #print counts of each type of non-frac trajs
+        print("Base trajectories processed: {}".format(self.__file_counter['base']))
+        print("Short trajectories processed: {}".format(self.__file_counter['short']))
+        print("Long trajectories processed: {}".format(self.__file_counter['long']))
+        print("Disassembly trajectories processed: {}".format(self.__file_counter['dis']))
+        print("Continued trajectories processed: {}".format(self.__file_counter['cont']))
+
+        #process frac trajectories separately
+        if self.__process_frac:
+            total_frac = np.sum(list(self.__frac_counter.values()))
+            print("\nTotal frac target trajectories processed: {}".format(total_frac))
+            for k in self.__frac_counter:
+                if self.__frac_counter[k] > 0:
+                    print("Frac {}-{}: {}".format(k/10,k/10+.1,self.__frac_counter[k]))
+            print()
+
+        #return number of frac trajs
+        return total_frac
+
 
 
 
