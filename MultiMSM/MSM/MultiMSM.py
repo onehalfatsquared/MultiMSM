@@ -726,22 +726,41 @@ class Collection:
     def get_count_matrix(self, msm_index):
 
         return self.get_msm(msm_index).get_count_matrix()
-
-    def print_all_transition_matrices(self):
-
-        for i in range(self.__num_elements):
-
-            m = self.__MSM_map[i+1]
-            print("For m_frac in {}".format(self.__discretization.interval_index_to_bounds(i+1)))
-            print(m.get_transition_matrix())
-
-    def print_all_count_matrices(self):
+    
+    def _print_all_matrix(self, mat_type, row, col):
 
         for i in range(self.__num_elements):
-
+            
+            #get the requested entries
             m = self.__MSM_map[i+1]
-            print("For m_frac in {}".format(self.__discretization.interval_index_to_bounds(i+1)))
-            print(m.get_count_matrix())
+            if mat_type == "t":
+                TM = m.get_transition_matrix()
+            elif mat_type == "c":
+                TM = m.get_count_matrix()
+            
+            #slice the proper row and col
+            if TM.nnz > 0:
+                if row is not None:
+                    TM = TM.getrow(row)
+                if col is not None:
+                    TM = TM.getcol(col)
+
+            #print out the values
+            print("For m_frac in {}".format(self.__discretization.interval_index_to_bounds(i+1)),end="")
+            print(" [Row = {}, Col = {}]".format(row, col))
+            print(TM)
+
+        return
+
+    def print_all_transition_matrices(self, row=None, col=None):
+        
+        self._print_all_matrix("t", row, col)
+        return
+
+    def print_all_count_matrices(self, row=None, col=None):
+
+        self._print_all_matrix("c", row, col)
+        return
 
 
 
