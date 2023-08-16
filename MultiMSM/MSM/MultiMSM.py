@@ -761,51 +761,6 @@ class Collection:
 
         self._print_all_matrix("c", row, col)
         return
-
-
-
-    def solve_BKE(self, fN, T):
-        '''
-        Solve the Backward Kolmogorov Equation for the probability of states as a function
-        of time. 
-        fN is the indicator (column) vector for a target set at final time (nparray), 
-        T is the final time (int # of lag times)
-
-        In solving this equation, the transition matrix that will be used each step depends on the 
-        monomer fraction. The time sequence is stored in the call to solve_FKE and accessed here. 
-        '''
-
-        #first check that the forward equation has been solved. throw error if not
-        if self.__msm_indices is None:
-            err_msg  = "The sequence of transition matrices has not been computed."
-            err_msg += " Please call solve_FKE() before calling solve_BKE()"
-            raise RuntimeError(err_msg)
-
-        #check if the fN distribution is an nparray with the correct dimensions
-        if type(fN) is not np.ndarray:
-            fN = np.array(fN, dtype=float)
-
-        if len(fN) != self.__num_states:
-            err_msg =  "The length of the supplied initial distribution ({})".format(len(fN))
-            err_msg += " does not match the number of states ({})".format(self.__num_states)
-            raise ValueError(err_msg)
-
-        #init storage for the solution
-        f      = np.zeros((self.__num_states, T+1), dtype=float)
-        f[:,T] = fN
-
-        #solve the BKE
-        for t in range(T):
-
-            #get the appropriate transition matrix and perform a step
-            TM         = self.get_transition_matrix(self.__msm_indices[T-1-t])
-            f[:,T-1-t] = TM * f[:,T-t]
-
-        #store the calculated soln
-        self.__bke_soln = f
-
-        #return the solution? 
-        return
     
     def __fix_zero_one(self, mon_frac):
         #if the monomer fraction is exactly zero or 1, give it a slight push
