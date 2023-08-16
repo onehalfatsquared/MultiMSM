@@ -1,13 +1,14 @@
 import numpy as np
 import scipy
 from scipy import sparse
+import sys
 
 import warnings
 
 
 class MSM:
 
-    def __init__(self, num_states, lag=1):
+    def __init__(self, num_states, lag=1, prune_threshold = None):
 
         #init the sparse matrix storage
         self.__num_states   = num_states
@@ -17,6 +18,7 @@ class MSM:
         self.__row_counts_uw= np.zeros(num_states, dtype=int)
 
         self.__lag = lag
+        self.__prune_threshold = prune_threshold
 
         return
 
@@ -30,6 +32,13 @@ class MSM:
         #after all counts are added, convert to a csr matrix and compute row sums
         #use these to construct a row normalized probability transition matrix
 
+        #do optional pruning, supress efficiency warning for sparse mat
+        print(self.__prune_threshold)
+        if self.__prune_threshold is not None:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore') #sparse efficiency warning, cant be avoided
+                self.__count_matrix[self.__count_matrix < self.__prune_threshold] = 0
+        
         #store the unweighted row counts before performing the weighting
         self.__row_counts_uw = np.asarray(self.__count_matrix.sum(axis=1)).squeeze()
 

@@ -45,7 +45,7 @@ class MultiMSMBuilder:
 
     def __init__(self, discretization, macrostate_map, traj_folder, lag = 1,
                  params = {}, cache = True, clear_cache = False, num_files = None,
-                 verbose = False):
+                 prune_tol = None, verbose = False):
         
         #store any optional input parameters
         self.__clear_cache = clear_cache
@@ -54,9 +54,11 @@ class MultiMSMBuilder:
         self.__verbose     = verbose
         self.__params      = params
         self.__lag         = lag
+        self.__prune_tol   = prune_tol
 
         #make an empty collection to form the MultiMSM, store the discretization and map
-        self.C = Collection(discretization, macrostate_map, parameters=params, lag=lag)
+        self.C = Collection(discretization, macrostate_map, parameters=params, lag=lag,
+                            prune_tol=prune_tol)
         self.__discretization = discretization
         self.__macrostate_map = macrostate_map
 
@@ -361,7 +363,7 @@ class Collection:
     '''
 
     def __init__(self, discretization, macrostate_map, parameters = {}, lag = 1,
-                 verbose = False):
+                 prune_tol = None, verbose = False):
 
         #store the discretization and get number of discretized elements
         if not isinstance(discretization, Discretization):
@@ -382,6 +384,7 @@ class Collection:
         #store the parameters for this MSM - key-value pairs in dict
         self.__parameters     = parameters
         self.__lag            = lag
+        self.__prune_tol      = prune_tol
 
         self.__verbose        = verbose
 
@@ -389,7 +392,8 @@ class Collection:
         self.__MSM_map        = dict()
         for i in range(self.__num_elements):
 
-            self.__MSM_map[i+1] = MSM(self.__num_states, lag=lag)
+            self.__MSM_map[i+1] = MSM(self.__num_states, lag=lag, 
+                                      prune_threshold=prune_tol)
 
         #store number of observations of each monomer fraction
         self.__frac_freqs  = Counter()
