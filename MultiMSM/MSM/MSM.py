@@ -91,7 +91,53 @@ class MSM:
         self.finalize_counts(macrostate_map)
 
         return
+    
+    def set_row_prob(self, row_idx, distribution):
+        #replace the row in the transition matrix with the given distr.
 
+        #replace the row
+        self._set_row_csr(self.__P, row_idx, distribution)
+
+        '''
+        Eliminate the zeros that may have been added in a swap. 
+        Note: eliminate zeros does not seem to work on csr matrix
+        for me... COnverting to coo, eliminating, then converting to
+        csr seems to work.
+        '''
+        self.__P = self.__P.tocoo()
+        self.__P.eliminate_zeros()
+        self.__P = self.__P.tocsr()
+
+        return
+
+    def _set_row_csr(self, A, row_idx, new_row):
+        #change the row of a csr matrix to a new row
+
+        assert sparse.isspmatrix_csr(A), 'A shall be a csr_matrix'
+        assert row_idx < A.shape[0], \
+                'The row index ({0}) shall be smaller than the number of rows in A ({1})' \
+                .format(row_idx, A.shape[0])
+        try:
+            N_elements_new_row = len(new_row)
+        except TypeError:
+            msg = 'Argument new_row shall be a list or numpy array, is now a {0}'\
+            .format(type(new_row))
+            raise AssertionError(msg)
+        N_cols = A.shape[1]
+        assert N_cols == N_elements_new_row, \
+                'The number of elements in new row ({0}) must be equal to ' \
+                'the number of columns in matrix A ({1})' \
+                .format(N_elements_new_row, N_cols)
+
+        idx_start_row = A.indptr[row_idx]
+        idx_end_row = A.indptr[row_idx + 1]
+        additional_nnz = N_cols - (idx_end_row - idx_start_row)
+
+        A.data = np.r_[A.data[:idx_start_row], new_row, A.data[idx_end_row:]]
+        A.indices = np.r_[A.indices[:idx_start_row], np.arange(N_cols), A.indices[idx_end_row:]]
+        A.indptr = np.r_[A.indptr[:row_idx + 1], A.indptr[(row_idx + 1):] + additional_nnz]
+        return
+    
     def get_count_matrix(self):
 
         return self.__count_matrix.copy()

@@ -791,6 +791,91 @@ class Collection:
 
         return msm
 
+    def compare_model(self, other_model, msm_index):
+        #compare this models transition matrix to anothers
+
+        #get the transition matrices to compare
+        myTM = self.get_transition_matrix(msm_index)
+        yoTM = other_model.get_transition_matrix(msm_index)
+
+        #init storage for row norms across matrices
+        differences = np.zeros(self.__num_states, dtype=float)
+
+        #loop over each row and compute differences in distributions
+        for state in range(self.__num_states):
+            
+            #get the row distribution in eahc matrix
+            p = np.array(myTM[state,:].todense())[0]
+            q = np.array(yoTM[state,:].todense())[0]
+
+            #compute the summed abs error across the row
+            diff = 0
+            for dest_state in range(self.__num_states):
+                if p[dest_state] > 0 and q[dest_state] > 0:
+                    diff += np.abs(p[dest_state]-q[dest_state])
+            differences[state] = diff
+
+        #sort the differences greatest to least
+        sorted_indices = np.argsort(differences)[::-1]
+
+        #print out the distributions for each row
+        for i in sorted_indices:
+            print("Row {}, Diff {}".format(i, differences[i]))
+            print(self.__macrostate_map.index_to_state(i))
+            print()
+            print(myTM[i,:])
+            print()
+            print(yoTM[i,:])
+            print()
+
+        return sorted_indices, differences
+
+    def copy_model(self, other_model, msm_index, sorted_ids, num_to_copy):
+        #provided with the output of compare model, copies the first 
+        # 'num_to_copy' rows of the other model to current model
+
+        myTM = self.get_transition_matrix(msm_index)
+        yoTM = other_model.get_transition_matrix(msm_index)
+
+        for sorted_id in sorted_ids[0:num_to_copy]:
+            
+            state = self.__macrostate_map.index_to_state(sorted_id)
+            old = myTM[sorted_id,:]
+            new = yoTM[sorted_id,:]
+
+            replace_with = np.array(new.todense(),dtype=float)[0]
+            self.__MSM_map[msm_index].set_row_prob(sorted_id, replace_with)
+            print("Replaced row for index {}, {}".format(sorted_id, state))
+            print("OLD")
+            print(old)
+            print('new')
+            print(new)
+
+        return
+    
+    def prune_row(self, msm_index, row, prune_tol):
+        #prune the given row of the given MSM of all probs less than tol
+
+        myTM = self.get_transition_matrix(msm_index)
+        current_row = np.array(myTM[row,:].todense(),dtype=float)[0]
+
+        #do pruning
+        current_row[current_row < prune_tol] = 0
+
+        #renormalize
+        row_sum = np.linalg.norm(current_row, 1)
+        current_row /= row_sum
+        
+        #replace row
+        self.__MSM_map[msm_index].set_row_prob(row, current_row)
+
+        return
+
+
+
+
+
+
     
 class MultiMSMSolver:
 
