@@ -574,6 +574,7 @@ class Collection:
 
                 #get list of all transitions within the lag interval, and the monomer fraction at that time
                 transitions = traj.get_transitions(start, lag)
+                print(transitions)
                 mon_frac    = traj.get_data()[start]['monomer_fraction']
 
                 #add them one by one to the dict
@@ -843,13 +844,13 @@ class Collection:
             old = myTM[sorted_id,:]
             new = yoTM[sorted_id,:]
 
+            replaced     = np.array(old.todense(),dtype=float)[0]
             replace_with = np.array(new.todense(),dtype=float)[0]
             self.__MSM_map[msm_index].set_row_prob(sorted_id, replace_with)
             print("Replaced row for index {}, {}".format(sorted_id, state))
-            print("OLD")
-            print(old)
-            print('new')
-            print(new)
+            for i in range(len(replaced)):
+                sz = self.__macrostate_map.index_to_state(i).get_size()
+                print("Index {}, Size {}, old {}, new {}, ratio {}".format(i, sz, replaced[i], replace_with[i], replace_with[i]/replaced[i]))
 
         return
     
