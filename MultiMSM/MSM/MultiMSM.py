@@ -123,11 +123,12 @@ class MultiMSMBuilder:
         if (os.path.exists(traj_folder+"long/")):
             self.__long_paths = self.__walk_directory(traj_folder+"long/")
 
-        #handle frac paths separately, since there are subdirectories here
-        self.__gather_frac_paths(traj_folder)
-
         self.__path_map = {"base":self.__base_paths, "short":self.__short_paths,
                            "cont":self.__cont_paths, "long": self.__long_paths}
+
+        #handle frac and reduce paths separately, since there are distributions here
+        self.__frac_exists, self.__frac_paths, self.__frac_counts = self.__gather_extra_paths(traj_folder, "frac")
+        self.__red_exists, self.__red_paths, self.__red_counts = self.__gather_extra_paths(traj_folder, "reduced")
         
         return
     
@@ -155,6 +156,28 @@ class MultiMSMBuilder:
             self.__frac_counts[i]= len(self.__frac_paths[i])
 
         return
+    
+    def __gather_extra_paths(self, traj_folder, path_type):
+        #determine if there is a 'frac' folder, and populate the dict with its paths
+
+        #if no frac folder, just exit this function, set existence flag to false
+        if not (os.path.exists(traj_folder+path_type)):
+            return False, dict(), {i:0 for i in range(10)}
+
+        #init dicts to store paths and counts per frac interval
+        paths  = dict()
+        counts = dict()
+
+        #walk the directory to get all paths
+        all_paths = self.__walk_directory(traj_folder+path_type+"/")
+
+        #separate the paths by frac value
+        for i in range(10):
+            paths[i] = [path for path in all_paths if path_type+str(i) in path]  
+            counts[i]= len(paths[i])
+
+        return True, paths, counts
+    
 
     def __walk_directory(self, dir_path):
         #walk through each subdirectory of the given path and accumulate .cl files
@@ -184,9 +207,11 @@ class MultiMSMBuilder:
         #accepts None, an integer (# base paths), or a dict
 
         self.__process_frac = False
+        self.__process_red  = False
 
         self.__file_counter = defaultdict(int)
         self.__frac_counter = {}
+        self.__red_counter  = {}
 
         #case 1 - None -> use all files
         if num_files is None:
@@ -211,12 +236,13 @@ class MultiMSMBuilder:
 
             #init all types to 0
             self.__frac_counter = {i:0 for i in range(10)}
+            self.__red_counter = {i:0 for i in range(10)}
             for path_type in self.__path_map.keys():
                 self.__file_counter[path_type] = 0
 
             #add the user specified counts for each path type
             for k,v in num_files.items():
-                if k != "frac":
+                if k != "frac" and k != 'reduced':
                     self.__file_counter[k] = min(v, len(self.__path_map[k]))
 
                 #handle "frac" case separately
@@ -240,11 +266,33 @@ class MultiMSMBuilder:
                         err_msg+= "It only supports 'all' or a dict of keys with "
                         err_msg+= "integers 0:9 and values the number of files to use."
                         raise RuntimeError(err_msg)
+                
+                #handle "frac" case separately
+                elif k == "reduced" and self.__red_exists:
+
+                    #set flag to process these trajectories
+                    self.__process_red = True
+
+                    #check if we request 'all' or a subset
+                    if v == "all":
+                        self.__red_counter = self.__red_counts
+
+                    #cjeck if there is a dict holding a distribution of files to use
+                    elif isinstance(v, dict):
+                        for rk,rv in v.items():
+                            self.__red_counter[rk] = min(rv, self.__red_counts[rk])
+
+                    #print an error message that the 'red' value provided is invalid
+                    else:
+                        err_msg = "The supplied value for the 'reduced' key is invalid"
+                        err_msg+= ". It only supports 'all' or a dict of keys with "
+                        err_msg+= "integers 0:9 and values the number of files to use."
+                        raise RuntimeError(err_msg)
 
             #check if they supplied an unsupported path type
             if len(self.__file_counter.keys()) > len(self.__path_map.keys()):
                 err_msg = "The supplied file count dict has invalid keys. "
-                err_msg+= "It only supports 'base', 'short', 'long', 'cont' and 'frac'."
+                err_msg+= "It only supports 'base', 'short', 'long', 'cont', 'frac', and 'reduced'."
                 raise RuntimeError(err_msg)
 
             return
@@ -281,7 +329,18 @@ class MultiMSMBuilder:
                 paths = v
                 num_paths = self.__frac_counter[k]
 
-                self.__do_processing(paths, num_paths, cache)
+                self.__do_processing(paths, num_paths, cache, kill_monomer=True)
+
+        #process reduced files separately if requested
+        if self.__process_red:
+            for k,v in self.__red_paths.items():
+
+                #filter to the number of requested paths
+                paths = v
+                num_paths = self.__red_counter[k]
+                starting_frac = (k+1)/10
+
+                self.__do_processing(paths, num_paths, cache, ratio=starting_frac)
 
         b = time.time()
             
@@ -305,14 +364,15 @@ class MultiMSMBuilder:
         
         return
 
-    def __do_processing(self, paths, counts, cache):
+    def __do_processing(self, paths, counts, cache, ratio=1.0, kill_monomer=False):
         #actually do the file processing
 
         #loop over requested number of files
         for next_file in paths[0:counts]:
 
             #add all transitions from current file, cache if requested
-            self.C.process_cluster_file(next_file, cache=cache)
+            self.C.process_cluster_file(next_file, cache=cache, ratio=ratio, 
+                                        kill_monomer=kill_monomer)
 
         return
     
@@ -336,6 +396,15 @@ class MultiMSMBuilder:
             for k in self.__frac_counter:
                 if self.__frac_counter[k] > 0:
                     print("Frac {}-{}: {}".format(k/10,k/10+.1,self.__frac_counter[k]))
+            print()
+
+        #process reduced trajectories separately
+        if self.__process_frac:
+            total_frac = np.sum(list(self.__red_counter.values()))
+            print("\nTotal reduced frac target trajectories processed: {}".format(total_frac))
+            for k in self.__red_counter:
+                if self.__red_counter[k] > 0:
+                    print("Frac {}-{}: {}".format(k/10,k/10+.1,self.__red_counter[k]))
             print()
 
         #return number of frac trajs
@@ -478,7 +547,8 @@ class Collection:
         return
 
 
-    def process_cluster_file(self, cluster_file, cache = False):
+    def process_cluster_file(self, cluster_file, cache = False, ratio=1,
+                             kill_monomer=False):
         '''
         Extract each transition from the given cluster file and add each count
         to the count matrix. 
@@ -501,7 +571,8 @@ class Collection:
             self.__reset_cache()
 
         #Process the cluster from scratch
-        self.__process_transitions(cluster_file, cache=cache)
+        self.__process_transitions(cluster_file, cache=cache, ratio=ratio, 
+                                   kill_monomer=kill_monomer)
 
         #save the cached results if requested
         if (cache):
@@ -509,7 +580,8 @@ class Collection:
 
         return
 
-    def __process_transitions(self, cluster_file, cache = False):
+    def __process_transitions(self, cluster_file, cache = False, ratio=1,
+                              kill_monomer=False):
         '''
         Unpickle the cluster file and add up the counts
         '''
@@ -524,8 +596,11 @@ class Collection:
         mon_ids      = sim_results.monomer_ids
 
         #count all of the transitions that occur and add to collection
-        self.__add_cluster_transitions(cluster_info, cache=cache)
-        self.__add_monomer_monomer_transitions(mon_fracs, mon_ids, cache=cache)
+        self.__add_cluster_transitions(cluster_info, cache=cache, ratio=ratio,
+                                       kill_monomer=kill_monomer)
+        if not kill_monomer:
+            self.__add_monomer_monomer_transitions(mon_fracs, mon_ids, cache=cache, 
+                                                   ratio=ratio)
 
         return
 
@@ -553,7 +628,8 @@ class Collection:
 
         return
 
-    def __add_cluster_transitions(self, cluster_info, cache = False):
+    def __add_cluster_transitions(self, cluster_info, cache = False, ratio=1, 
+                                  kill_monomer=False):
         '''
         loop over all transitions in cluster info and add them to the correct MSM in 
         collection. 
@@ -574,18 +650,21 @@ class Collection:
 
                 #get list of all transitions within the lag interval, and the monomer fraction at that time
                 transitions = traj.get_transitions(start, lag)
-                print(transitions)
-                mon_frac    = traj.get_data()[start]['monomer_fraction']
+                mon_frac    = traj.get_data()[start]['monomer_fraction'] * ratio
 
                 #add them one by one to the dict
                 for transition in transitions:
                     state1   = transition[0]
+                    #do not log monomer transitions if kill_monomer is true
+                    if kill_monomer and state1.get_size() == 1:
+                        continue #skips to next iteration in loop over start
                     state2   = transition[1]
                     self.__add_transition(state1, state2, mon_frac, cache=cache)
 
         return 
 
-    def __add_monomer_monomer_transitions(self, mon_fracs, mon_ids, cache = False):
+    def __add_monomer_monomer_transitions(self, mon_fracs, mon_ids, cache = False, 
+                                          ratio=1):
         '''
         Loop over each [frame, frame+lag] of the simulation to determine how many 
         monomer -> monomer transitions there are, and at what monomer fraction
@@ -600,7 +679,7 @@ class Collection:
         for i in range(L-lag):
 
             #get the monomer fraction at this frame, and the corresponding discretization index
-            mon_frac  = mon_fracs[i]
+            mon_frac  = mon_fracs[i] * ratio
             msm_index = self.get_msm_index(mon_frac) 
 
             #get the set of monomer ids at each frame
