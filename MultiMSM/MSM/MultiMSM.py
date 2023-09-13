@@ -399,7 +399,7 @@ class MultiMSMBuilder:
             print()
 
         #process reduced trajectories separately
-        if self.__process_frac:
+        if self.__process_red:
             total_frac = np.sum(list(self.__red_counter.values()))
             print("\nTotal reduced frac target trajectories processed: {}".format(total_frac))
             for k in self.__red_counter:

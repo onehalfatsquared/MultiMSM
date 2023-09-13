@@ -33,7 +33,7 @@ class MSM:
         #use these to construct a row normalized probability transition matrix
 
         #do optional pruning, supress efficiency warning for sparse mat
-        if self.__prune_threshold is not None:
+        if self.__prune_threshold is not None and self.__prune_threshold > 1:
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore') #sparse efficiency warning, cant be avoided
                 self.__count_matrix[self.__count_matrix < self.__prune_threshold] = 0
