@@ -1120,6 +1120,57 @@ class MultiMSMSolver:
             print("Inner product:\n",invariant_product)
      
         return
+    
+    def generateTrajectory(self, T, start_index = 0, p0 = None, output_type = "index"):
+        '''
+        Generates a trajectory of length T according to the MultiMSM dynamics. 
+        Begins in starting state and draws a random new state from the row
+        of the corresponding transition matrix at each lag time. 
+
+        Relies on the sequence of transition matrices stored during a forward solve. 
+        If a forward solve has not been performed until time T, will perform one in 
+        the initialization. 
+
+        Output trajectory is a list of sequential states, reported as either indices,
+        State objects, or cluster sizes. 
+        '''
+
+        #check if a forward solve has been performed to the desired time. do it if not
+        self.solve_FKE(T, p0=p0)
+
+        #init storage for trajectory
+        traj = [start_index]
+        current_index = start_index
+
+        #loop over all times to generate new states
+        for i in range(T):
+
+            #grab the transition matrix at this time
+            TM = self.__reconstructTM(i)
+
+            #extract the row corresponding to the current state
+            row = TM[current_index, :]
+            row.sort_indices()
+            row.eliminate_zeros()
+
+            # Get the indices of nonzero values and their values, convert to arrays
+            nonzero_indices = np.array(row.nonzero()).squeeze()[1]
+            nonzero_values  = np.array(row.data).squeeze()
+            
+            #sample this distribution to generate new state
+            if not isinstance(nonzero_indices, np.ndarray):
+                current_index = nonzero_indices
+            else:
+                current_index = np.random.choice(nonzero_indices, p=nonzero_values)
+            traj.append(current_index)
+
+        #post process the trajectory to the correct output format
+        if output_type == "size":
+            for i in range(len(traj)):
+                traj[i] = self.__macrostate_map.index_to_state(traj[i]).get_size()
+        return traj
+            
+
 
     def __setup_initial_condition(self, p0):
         #determine the IC and do type and bounds checking
@@ -1128,7 +1179,7 @@ class MultiMSMSolver:
         if p0 is None:
             init_dist = self.__FKE_monomer_start()
             print("Warning: Initial distribution not specified. Defaulting to 100% monomer")
-        elif p0 == "monomer_start":
+        elif p0 == "monomer_start" or p0 == "ms":
             init_dist = self.__FKE_monomer_start()
         else:
             init_dist = p0
@@ -1174,7 +1225,7 @@ class MultiMSMSolver:
 
         #if we have already solved longer than the requested time
         if self.__fke_soln.shape[0] >= T+1:
-            return T+2
+            return T #Note: used to be T+2, but I think this was wrong
 
         #if we get here, we need to continue the solve, return len of soln
         return self.__fke_soln.shape[0]
