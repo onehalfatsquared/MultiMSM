@@ -24,7 +24,7 @@ class BinOptimizer:
     def __init__(self, num_bins, lag, MM, traj_folder, final_time = None,
                  initial_guess = None, fixed_indices = None, obj_norm = 2, 
                  target_size = 1, target_states = None,
-                 compare_long = False):
+                 compare_long = False, smooth_frac = 0.25):
 
         #set user inputs
         self._num_bins    = num_bins
@@ -34,6 +34,7 @@ class BinOptimizer:
         self._samples_loc = traj_folder
         self._obj_norm    = obj_norm
         self._final_time  = final_time
+        self._smooth_frac = smooth_frac
 
         #if the comparison is over the long trajectories, overwrite sample location
         self._compare_long = compare_long
@@ -180,7 +181,8 @@ class BinOptimizer:
 
         #create the solver and solve the FKE with given conditions
         solver      = MultiMSMSolver(model)
-        target_prob = solver.get_FKE(self._final_time, p0=self._msIC, frac=0.25, 
+        target_prob = solver.get_FKE(self._final_time, p0=self._msIC, 
+                                     frac=self._smooth_frac, 
                                      target_index_list = self._target_indices)
         
         return target_prob
@@ -239,13 +241,13 @@ class BinOptimizerSequential(BinOptimizer):
     def __init__(self, num_bins, lag, MM, traj_folder, final_time = None,
                  initial_guess = None, fixed_indices = None, num_files = None,
                  obj_norm = 2, target_size = 1, target_states = None,
-                 compare_long = False, 
+                 compare_long = False, smooth_frac = 0.25,
                  num_sweeps = 1, samples_per_div = 4):
         
         #call the parent init
         super().__init__(num_bins, lag, MM, traj_folder, final_time, initial_guess, 
                          fixed_indices, obj_norm, target_size, target_states, 
-                         compare_long)
+                         compare_long, smooth_frac)
 
         #variables for the optimization
         self._samples_per_div = samples_per_div + (samples_per_div%2)
@@ -277,7 +279,7 @@ class BinOptimizerSequential(BinOptimizer):
             for divider in range(self._num_dividers):
 
                 #if minimum mon fraction is greater than lower cutoff, skip this div
-                if self._test_skip(divider):
+                if divider in self._fixed_indices: #or self._test_skip(divider):
                     continue
 
                 #get equally spaced test points to potentially replace this divider
@@ -329,6 +331,9 @@ class BinOptimizerSequential(BinOptimizer):
         #see if the new divider location, point, improves the objective function
         #if so, update the variables keeping track of the best
 
+        if verbose:
+            print("Testing value {} for divider {}".format(point, divider))
+
         #create new discretization with these cutoffs
         new_cutoffs = self._current_guess.get_cutoffs().copy()
         new_cutoffs[-1-divider-1] = point
@@ -365,8 +370,11 @@ class BinOptimizerSequential(BinOptimizer):
         diff = self._current_guess.get_cutoffs().copy() - self._min_mon
 
         #check if the current div and the right div are negative or not
-        if diff[-1-divider-1]<0 and diff[-1-divider]<0:
-            return True
+        if diff[-1-divider-1]<0 and diff[-1-divider]<0 and diff[-1-divider-2]<0:
+
+            #check that we are not at the last bin
+            if divider < len(self._current_guess.get_cutoffs())-3:
+                return True
 
         #if we reach here, the current bin is affected. return false for skip
         return False

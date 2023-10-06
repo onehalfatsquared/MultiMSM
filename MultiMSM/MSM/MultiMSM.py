@@ -758,6 +758,16 @@ class Collection:
     def finalize_counts(self):
         #call finalize counts on each MSM. Constructs a transition matrix from the counts added so far
 
+        #check if counts are already final. Doing so again will mess with mass-weighting
+        #so we do not allow this to be called more than once. 
+        if self.__counts_finalized:
+            warning = "Warning: Collection.finalize_counts() called after counts "
+            warning+= "have been finalized. Nothing added since the first finalize "
+            warning+= "will be reflected in the count or transition matrix."
+            print(warning)
+            return
+
+        #finalize each MSM in the Collection
         for i in range(self.__num_elements):
 
             self.__MSM_map[i+1].finalize_counts(self.__macrostate_map)
@@ -766,6 +776,51 @@ class Collection:
         self.__counts_finalized = True
 
         return
+    
+    def set_MSM_map(self, map_index, msm):
+        #place the given msm as the given index in the collection
+
+        self.__MSM_map[map_index] = msm
+
+        return
+
+    def _set_finalized(self):
+        #set flag that marks all the msms as finalized
+
+        self.__counts_finalized = True
+        return
+    
+    def make_reduced_collection(self, max_index_shift):
+        '''
+        Makes a reduced MSM such that the provided index in the discretization
+        is the new monomer fraction 1. For example, consider the discretization
+            D0 = Discretization([0,0.25,0.5,0.75,1])
+        If we provide max_index_shift=1, then 0.75 becomes the new monfrac 1 and 
+        everything else gets scaled for the new discretization
+            D1 = Discretization([0, 0.33, 0.66, 1])
+        The MSM used in [0,0.33] is the original MSM on [0,0.25].
+        '''
+
+        #first, we construct a new discretization
+        new_max     = self.__discretization.get_cutoffs()[-1-max_index_shift]
+        new_cutoffs = self.__discretization.get_cutoffs()[0:-max_index_shift]
+        new_cutoffs = [bin/new_max for bin in new_cutoffs]
+        new_disc    = Discretization(new_cutoffs)
+        new_num_elements = new_disc.get_num_intervals()
+
+        #now we make a new collection with this discretization
+        new_C = Collection(new_disc, self.__macrostate_map, self.__parameters, 
+                           self.__lag, self.__prune_tol, self.__verbose)
+        
+        #now we copy the relevant MSMs from self to the new Collection
+        for i in range(new_num_elements):
+
+            new_C.set_MSM_map(i+1, self.__MSM_map[i+1])
+            
+        #set the new collection to finalized, since it was built with finalized MSMs
+        new_C._set_finalized()
+
+        return new_C
     
     def get_misses(self):
 
