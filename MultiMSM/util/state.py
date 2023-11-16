@@ -275,6 +275,44 @@ class MacrostateMap:
     def get_monomer_index(self):
 
         return self.__monomer_index
+    
+    def remove_entry(self, index):
+        '''
+        Remove the state in the specified index. All greater indices must be shifted
+        down by 1 to account for the removal. 
+
+        DANGER: if removing multiple states by index at once, you MUST go from largest
+        index to smallest index. Otherwise, the indexing will not be consistent and 
+        unintended states will be removed. 
+        '''
+
+        # Get the corresponding state and total number of states
+        state = self.index_to_state(index)
+        num_states = self.get_num_states()
+
+        # Remove the state and index from each dict
+        removed_state = self.__toState.pop(index)
+        removed_index = self.__toIndex.pop(state, None)  # Use pop with a default value
+
+        # Shift the indices for all states with greater index
+        for shift_index in range(index + 1, num_states):
+
+            # Get the corresponding state
+            shift_state = self.index_to_state(shift_index)
+
+            # Remove the original key-value pairs
+            removed_shift_state = self.__toState.pop(shift_index)
+            removed_shift_index = self.__toIndex.pop(shift_state, None)  # Use pop with a default value
+
+            # Update the dictionaries with shifted values
+            self.__toState[shift_index - 1] = removed_shift_state
+            if removed_shift_index is not None:
+                self.__toIndex[removed_shift_state] = shift_index - 1
+
+        return
+
+
+
 
     def filter_by_size(self, sizes, verbose = False):
         #return all indices for states with size in sizes

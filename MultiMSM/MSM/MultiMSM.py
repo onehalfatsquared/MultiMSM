@@ -454,6 +454,7 @@ class Collection:
         self.__parameters     = parameters
         self.__lag            = lag
         self.__prune_tol      = prune_tol
+        self.__default_pruning= 1
 
         self.__verbose        = verbose
 
@@ -461,14 +462,23 @@ class Collection:
         self.__MSM_map        = dict()
         for i in range(self.__num_elements):
 
+            if isinstance(prune_tol, dict):
+                try:
+                    pruning = prune_tol[i+1]
+                except:
+                    pruning = self.__default_pruning
+            else:
+                pruning = prune_tol
+
             self.__MSM_map[i+1] = MSM(self.__num_states, lag=lag, 
-                                      prune_threshold=prune_tol)
+                                      prune_threshold=pruning)
 
         #store number of observations of each monomer fraction
         self.__frac_freqs  = Counter()
 
         #flag to mark when counts are done being added and have been normalized
         self.__counts_finalized = False
+        self.__clusterized = False
 
         #init count caching variables
         self.__count_cache = defaultdict(defaultdict(int).copy)
@@ -801,6 +811,10 @@ class Collection:
         The MSM used in [0,0.33] is the original MSM on [0,0.25].
         '''
 
+        #if the shift is 0, just return the same collection
+        if max_index_shift == 0:
+            return self
+
         #first, we construct a new discretization
         new_max     = self.__discretization.get_cutoffs()[-1-max_index_shift]
         new_cutoffs = self.__discretization.get_cutoffs()[0:-max_index_shift]
@@ -822,6 +836,39 @@ class Collection:
 
         return new_C
     
+    def performTPT(self, initial_indices, target_indices, max_size = None, 
+                   cluster_size_threshold = 3, clusterize = True):
+        #perform transition path theory calculations on each MSM in the collection
+
+        #perform clusterization of each MSM unless otherwise specified
+        if clusterize:
+            self.clusterize_all(cluster_size_threshold)
+                
+        #compute the committor
+        q = {}
+        for i in range(self.__num_elements):
+            q[i+1] = self.get_msm(i+1).compute_committor(initial_indices, target_indices)
+
+        #compute critical nucleus
+        c = {}
+        for i in range(self.__num_elements):
+            c[i+1] = self.get_msm(i+1).compute_critical_nucleus(initial_indices,    
+                                        target_indices, self.__macrostate_map, max_size)
+            
+        return q, c
+    
+    def clusterize_all(self, cluster_size_threshold = 3):
+        #perform clusterization on all sub-MSMs
+
+        for i in range(self.__num_elements):
+            self.__MSM_map[i+1].clusterize_matrix(self.__macrostate_map, 
+                                                    cluster_size_threshold)
+        
+        self.__clusterized = True
+
+        return
+
+    
     def get_misses(self):
 
         return self.__map_misses
@@ -829,6 +876,10 @@ class Collection:
     def is_finalized(self):
 
         return self.__counts_finalized
+    
+    def is_clusterized(self):
+
+        return self.__clusterized
     
     def get_frac_freqs(self):
 
@@ -858,9 +909,9 @@ class Collection:
 
         return self.__MSM_map[msm_index]
 
-    def get_transition_matrix(self, msm_index):
+    def get_transition_matrix(self, msm_index, clusterized=False):
 
-        return self.get_msm(msm_index).get_transition_matrix()
+        return self.get_msm(msm_index).get_transition_matrix(clusterized)
 
     def get_count_matrix(self, msm_index):
 
@@ -1037,6 +1088,9 @@ class MultiMSMSolver:
         self.__fke_soln = None
         self.__bke_soln = None
 
+        self.__entropy_production = []
+        self.__entropy_time = []
+
         #the backward equation needs to know what transition matrices were used
         #to solve the forward equation. This dict will store the indices and weights
         #to reconstruct the matrix as tuples for each lag, which indexes the dict
@@ -1045,7 +1099,7 @@ class MultiMSMSolver:
         return
 
 
-    def solve_FKE(self, T, p0 = None, frac = 0.25):
+    def solve_FKE(self, T, p0 = None, frac = 0.25, compute_entropy = False):
         '''
         Solve FKE up to integer lag T. p0 is the initial distribution, which will
         default to 100% monomers if another distribution is not specified. 
@@ -1081,6 +1135,12 @@ class MultiMSMSolver:
             else:
                 TM = self.__get_matrix_base(current_mon_frac, t)
 
+            #check if entropy production is requested
+            if compute_entropy and t % int(compute_entropy) == 0:
+                e = self.__compute_entropy_prod(TM, self.__fke_soln[t,:])
+                self.__entropy_production.append(e)
+                self.__entropy_time.append(t)
+
             #update the probabilities 1 step in future
             self.__fke_soln[t+1, :] = self.__fke_soln[t, :] * TM
 
@@ -1093,7 +1153,8 @@ class MultiMSMSolver:
         #return a copy of the full solution
         return self.__fke_soln.copy()
 
-    def get_FKE(self, T, p0 = None, frac = 0.25, target_index_list = None):
+    def get_FKE(self, T, p0 = None, frac = 0.25, target_index_list = None, 
+                compute_entropy = False):
         #return the solution to the FKE up to the specified time and given 
         #initial distribution 
         #if target_index set is None, return full thing. Otherwise return the
@@ -1101,7 +1162,7 @@ class MultiMSMSolver:
 
         #check that p0 is same as stored, otherwise compute full soln
         if self.__current_p0 != p0 or (self.__fke_soln is not None and T+1 > self.__fke_soln.shape[0]):
-            self.solve_FKE(T, p0=p0, frac=frac)
+            self.solve_FKE(T, p0=p0, frac=frac, compute_entropy=compute_entropy)
 
         #check if target index is not None and sum the probabilities
         if target_index_list is not None:
@@ -1112,6 +1173,16 @@ class MultiMSMSolver:
 
         #return the full solution
         return self.__fke_soln
+    
+    def get_entropy(self):
+        #return the entropy production as function of time
+
+        if len(self.__entropy_production) == 0:
+            err = "Entropy Production has not been computed. Call solve_FKE() with "
+            err+= "compute_entropy=True parameter before calling get_entropy(). "
+            raise RuntimeError(err)
+        
+        return self.__entropy_time, self.__entropy_production
 
     def solve_BKE(self, T, target_index_list):
         '''
@@ -1176,7 +1247,8 @@ class MultiMSMSolver:
      
         return
     
-    def generateTrajectory(self, T, start_index = 0, p0 = None, output_type = "index"):
+    def generateTrajectory(self, T, start_index = 0, p0 = None, output_type = "index",
+                           clusterized=True):
         '''
         Generates a trajectory of length T according to the MultiMSM dynamics. 
         Begins in starting state and draws a random new state from the row
@@ -1190,6 +1262,10 @@ class MultiMSMSolver:
         State objects, or cluster sizes. 
         '''
 
+        #check if transitions matrices have been clusterized if requested
+        if clusterized and not self.__multiMSM.is_clusterized():
+            self.__multiMSM.clusterize_all()
+
         #check if a forward solve has been performed to the desired time. do it if not
         self.solve_FKE(T, p0=p0)
 
@@ -1201,7 +1277,7 @@ class MultiMSMSolver:
         for i in range(T):
 
             #grab the transition matrix at this time
-            TM = self.__reconstructTM(i)
+            TM = self.__reconstructTM(i, clusterized)
 
             #extract the row corresponding to the current state
             row = TM[current_index, :]
@@ -1224,8 +1300,39 @@ class MultiMSMSolver:
             for i in range(len(traj)):
                 traj[i] = self.__macrostate_map.index_to_state(traj[i]).get_size()
         return traj
-            
+    
+    def __compute_entropy_prod(self, TM, distribution):
+        '''
+        Determine the entropy production from the current transition matrix and    
+        probability distribution. Formula is
+            sum_{i,j} (p_i T_ij - p_j T_ji) log(p_iT_ij/p_jT_ji)
+        or in words, the difference in forward and backward flux times the log of the 
+        ratio of forward and backward flux. 
+        '''
 
+        #get all entries that are nonzero at this time
+        non_zero_ids = np.where(distribution > 1e-6)[0]
+
+        #init the entropy sum
+        ep = 0
+        pos_tol = 1e-8
+
+        #loop over all pairs of states
+        print(len(non_zero_ids))
+        for idx in range(len(non_zero_ids)):
+            for jdx in range(idx+1, len(non_zero_ids)):
+
+                i = non_zero_ids[idx]
+                j = non_zero_ids[jdx]
+                
+                forward = distribution[i] * TM[i,j]
+                backward= distribution[j] * TM[j,i]
+
+                if forward > pos_tol and backward > pos_tol:
+                    ep += (forward-backward) * np.log(forward/backward)
+
+        return ep
+    
 
     def __setup_initial_condition(self, p0):
         #determine the IC and do type and bounds checking
@@ -1413,20 +1520,21 @@ class MultiMSMSolver:
 
         return
 
-    def __reconstructTM(self, t):
+    def __reconstructTM(self, t, clusterized = False):
         #reconstruct transition matrix that was used to solve the forward eqn
         #from t to t+1
 
         #get the list of weights and indices
         factors = self.__TM_indices[t]
+        c = clusterized
 
         #if there is only one matrix, return that
         if len(factors) == 1:
-            return self.__multiMSM.get_transition_matrix(factors[0][0])
+            return self.__multiMSM.get_transition_matrix(factors[0][0], c)
 
         #otherwise, construct the linear combination
-        left = self.__multiMSM.get_transition_matrix(factors[0][0]) * factors[0][1]
-        right= self.__multiMSM.get_transition_matrix(factors[1][0]) * factors[1][1]
+        left = self.__multiMSM.get_transition_matrix(factors[0][0], c) * factors[0][1]
+        right= self.__multiMSM.get_transition_matrix(factors[1][0], c) * factors[1][1]
 
         return left + right
     
