@@ -525,7 +525,7 @@ class MSM:
         return classes
 
     
-    def __determine_absorbing(self, TM, absorb_tol):
+    def __determine_absorbing(self, TM, absorb_tol, manually_remove = []):
         '''
         Returns an array containing all indices of absorbing and near-absorbing states. 
 
@@ -555,6 +555,11 @@ class MSM:
             if diag > absorb_tol and i not in absorbing_indices and i > 0:
                 absorbing_indices.append(i)
 
+        #add states to manually remove
+        for index in manually_remove:
+            if index not in absorbing_indices:
+                absorbing_indices.append(index)
+
         #perform iterative process 
         for iter in range(max_iter):
 
@@ -577,7 +582,8 @@ class MSM:
         return absorbing_indices
 
     
-    def remove_absorbing(self, macrostate_map, absorb_tol = 0.991, clusterized=False):
+    def remove_absorbing(self, macrostate_map, absorb_tol = 0.991, clusterized=False,
+                         manually_remove = []):
         '''
         Remove the absorbing states from the transition matrix, ensuring to 
         re-normalize any row that no longer sums to 1. Stores this matrix in 
@@ -591,8 +597,11 @@ class MSM:
         TM = self.get_transition_matrix(clusterized=clusterized).todense()
 
         #gather a list of absorbing states. sort it from largest to smallest
-        absorbing_indices = self.__determine_absorbing(TM, absorb_tol)
+        absorbing_indices = self.__determine_absorbing(TM, absorb_tol, manually_remove)
         absorbing_indices = -np.sort(-np.array(absorbing_indices))
+
+        # for id in absorbing_indices:
+        #     print(id, macrostate_map.index_to_state(id))
 
         #remove these indices from the transition matrix, rows and columns, and new map
         new_map = copy.deepcopy(macrostate_map)
