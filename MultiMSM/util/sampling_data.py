@@ -605,7 +605,9 @@ class MicrostateData:
         if self._microstate_counts is None:
             self._microstate_counts  = counts
         else:
-            self._microstate_counts += counts
+            min_size = min(len(counts), len(self._microstate_counts))
+            self._microstate_counts = self._microstate_counts[0:min_size]
+            self._microstate_counts += counts[0:min_size]
 
         return
 

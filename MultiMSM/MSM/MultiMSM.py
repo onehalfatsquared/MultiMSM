@@ -11,6 +11,7 @@ from scipy import sparse
 from collections import defaultdict, Counter
 
 import time
+import random
 
 from .MSM import MSM
 
@@ -45,7 +46,7 @@ class MultiMSMBuilder:
 
     def __init__(self, discretization, macrostate_map, traj_folder, lag = 1,
                  params = {}, cache = True, clear_cache = False, num_files = None,
-                 prune_tol = None, verbose = False):
+                 prune_tol = None, verbose = False, bootstrap = False):
         
         #store any optional input parameters
         self.__clear_cache = clear_cache
@@ -55,6 +56,7 @@ class MultiMSMBuilder:
         self.__params      = params
         self.__lag         = lag
         self.__prune_tol   = prune_tol
+        self.__bootstrap   = bootstrap
 
         #make an empty collection to form the MultiMSM, store the discretization and map
         self.C = Collection(discretization, macrostate_map, parameters=params, lag=lag,
@@ -367,8 +369,15 @@ class MultiMSMBuilder:
     def __do_processing(self, paths, counts, cache, ratio=1.0, kill_monomer=False):
         #actually do the file processing
 
+        #make list containing all the paths to sample
+        path_list = paths[0:counts]
+        #if bootstrapping, fill with random samples from paths with replacement
+        if self.__bootstrap:
+            new_paths = random.choices(path_list, k=counts)
+            path_list = new_paths
+
         #loop over requested number of files
-        for next_file in paths[0:counts]:
+        for next_file in path_list:
 
             #add all transitions from current file, cache if requested
             self.C.process_cluster_file(next_file, cache=cache, ratio=ratio, 

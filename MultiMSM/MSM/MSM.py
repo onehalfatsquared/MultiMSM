@@ -646,13 +646,11 @@ class MSM:
         self.__reduced_eq = p_eq
         return p_eq
     
-    def compute_fe_vs_size(self, max_size, remove_absorbing = True, plot=False):
+    def compute_fe_vs_size(self, max_size, remove_absorbing = True, plot=False,
+                           min_fe = False):
         #make plot of free energy vs intermediate size
 
         #assume that absorbing states have been removed and eq computed, for now
-
-        #make array to store minimal free energies
-        free_energy_minima = np.ones(max_size, dtype=float) * 10000
 
         #convert equilibrium distribution to free energies
         free_energies = -np.log(self.__reduced_eq) 
@@ -662,14 +660,35 @@ class MSM:
         else:
             map = self.__macrostate_map
 
-        #loop over each element, get the structure size, determine minima
-        for i in range(len(free_energies)):
+        if (min_fe):
 
-            fe = free_energies[i]
-            csize = map.index_to_state(i).get_size()
-            if csize <= max_size:
-                if fe < free_energy_minima[csize-1]:
-                    free_energy_minima[csize-1] = fe
+            #make array to store minimal free energies
+            free_energy_minima = np.ones(max_size, dtype=float) * 10000
+
+            #loop over each element, get the structure size, determine minima
+            for i in range(len(free_energies)):
+
+                fe = free_energies[i]
+                csize = map.index_to_state(i).get_size()
+                if csize <= max_size:
+                    if fe < free_energy_minima[csize-1]:
+                        free_energy_minima[csize-1] = fe
+
+        else:
+
+            #make array to store summed free energies
+            energy_sums = np.zeros(max_size, dtype=float)
+
+            #loop over each element, get the structure size, add fe to array
+            for i in range(len(self.__reduced_eq)):
+
+                e = self.__reduced_eq[i]
+                csize = map.index_to_state(i).get_size()
+                if csize <= max_size:
+                    energy_sums[csize-1] += e
+
+                free_energy_minima = -np.log(energy_sums)
+
 
         #make plot of free energy vs intermediate size
         if plot:
