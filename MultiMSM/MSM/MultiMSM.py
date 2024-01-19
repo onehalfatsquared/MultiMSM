@@ -1097,8 +1097,15 @@ class MultiMSMSolver:
         self.__fke_soln = None
         self.__bke_soln = None
 
+        #init arrays for storing entropy production results
         self.__entropy_production = []
         self.__entropy_time = []
+
+        #init arrays for storing TPT results
+        self.__q_forward = None
+        self.__q_backward= None
+        self.__initial = []
+        self.__target  = []
 
         #the backward equation needs to know what transition matrices were used
         #to solve the forward equation. This dict will store the indices and weights
@@ -1108,7 +1115,8 @@ class MultiMSMSolver:
         return
 
 
-    def solve_FKE(self, T, p0 = None, frac = 0.25, compute_entropy = False):
+    def solve_FKE(self, T, p0 = None, frac = 0.25, compute_entropy = False,
+                  compute_committor = False):
         '''
         Solve FKE up to integer lag T. p0 is the initial distribution, which will
         default to 100% monomers if another distribution is not specified. 
@@ -1130,6 +1138,10 @@ class MultiMSMSolver:
         #depending on T
         start_time = self.__setup_FKE(init_dist, p0, T)
         current_mon_frac = self.__fke_soln[start_time, self.__monomer_index]
+
+        #setup committor arrays if requested
+        if compute_committor:
+            self.__setup_committor(compute_committor)
 
         #init needed variables for smoothing if requested
         if frac > 0:
@@ -1153,17 +1165,25 @@ class MultiMSMSolver:
             #update the probabilities 1 step in future
             self.__fke_soln[t+1, :] = self.__fke_soln[t, :] * TM
 
+            #check if committors are being computed. If so, update q_backward
+            if compute_committor:
+                self.__update_q_backward(t)
+
             #get the index for the next transition matrix from monomer frac
             current_mon_frac = self.__fke_soln[t+1,self.__monomer_index]
 
         #store what p0 was used to compute this soln
         self.__current_p0 = p0
 
+        #if the committor is requested, compute forward committor now
+        if compute_committor:
+            self.__compute_q_forward(T)
+
         #return a copy of the full solution
         return self.__fke_soln.copy()
 
     def get_FKE(self, T, p0 = None, frac = 0.25, target_index_list = None, 
-                compute_entropy = False):
+                compute_entropy = False, compute_committor = False):
         #return the solution to the FKE up to the specified time and given 
         #initial distribution 
         #if target_index set is None, return full thing. Otherwise return the
@@ -1171,7 +1191,8 @@ class MultiMSMSolver:
 
         #check that p0 is same as stored, otherwise compute full soln
         if self.__current_p0 != p0 or (self.__fke_soln is not None and T+1 > self.__fke_soln.shape[0]):
-            self.solve_FKE(T, p0=p0, frac=frac, compute_entropy=compute_entropy)
+            self.solve_FKE(T, p0=p0, frac=frac, compute_entropy=compute_entropy,
+                           compute_committor=compute_committor)
 
         #check if target index is not None and sum the probabilities
         if target_index_list is not None:
@@ -1319,20 +1340,16 @@ class MultiMSMSolver:
         ratio of forward and backward flux. 
         '''
 
-        #get all entries that are nonzero at this time
-        non_zero_ids = np.where(distribution > 1e-6)[0]
-
-        #init the entropy sum
+        #init the entropy sum, set a tolerance for including a state
         ep = 0
         pos_tol = 1e-8
 
-        #loop over all pairs of states
-        print(len(non_zero_ids))
-        for idx in range(len(non_zero_ids)):
-            for jdx in range(idx+1, len(non_zero_ids)):
+        #get nonzero elements of the transition matrix to make calculation efficient
+        rnz,cnz = TM.nonzero()
+        for element in range(len(rnz)):
 
-                i = non_zero_ids[idx]
-                j = non_zero_ids[jdx]
+                i = rnz[element]
+                j = cnz[element]
                 
                 forward = distribution[i] * TM[i,j]
                 backward= distribution[j] * TM[j,i]
@@ -1340,7 +1357,7 @@ class MultiMSMSolver:
                 if forward > pos_tol and backward > pos_tol:
                     ep += (forward-backward) * np.log(forward/backward)
 
-        return ep
+        return ep/2.0
     
 
     def __setup_initial_condition(self, p0):
@@ -1431,6 +1448,109 @@ class MultiMSMSolver:
         self.__bke_soln[target_index_list, T] = 1.0
 
         return
+
+    def __setup_committor(self, comm_info):
+        #allocate arrays for the forward and backward committor
+        #same size as arrays allocated for fke soln
+
+        #check that comm_info provides two lists of int indices
+        integer_sublists_count = 0
+        for sublist in comm_info:
+            if isinstance(sublist, list) and all(isinstance(entry, int) for entry in sublist):
+                integer_sublists_count += 1
+        if integer_sublists_count != 2:
+            err = "If computing committors, must pass a list whose first entry is "
+            err+= "a list of initial indices, and second entry is a list of target indices."
+            raise TypeError(err)
+
+        #extract the initial and target states from the list
+        self.__initial = comm_info[0]
+        self.__target  = comm_info[1]
+
+        #give committors same dimensions as KE soln arrays. set init/final conditions
+        self.__q_forward = self.__fke_soln.copy().transpose() * 0
+        self.__q_backward= self.__q_forward.copy()
+        self.__q_forward[self.__target, -1]  = 1.0 #target at Tf is 1
+        self.__q_backward[self.__initial, 0] = 1.0 #init at 0 is 1
+
+        return
+
+    def __update_q_backward(self, t):
+        #updates the backward committor during FKE solve using current TM
+        # time reversed transition matrix is given by...
+        # P_ij^-(n) = p_j(n-1)/p_i(n) * P_ji(n-1)
+        
+        #make diagonal matrices of the probability distribution at t and t+1
+        y = scipy.sparse.diags(1/self.__fke_soln[t+1,:])
+        x = scipy.sparse.diags(self.__fke_soln[t,  :])
+
+        #ensure y does not have any NaNs, replace with zeros
+        y.data = np.nan_to_num(y.data, copy=False)
+
+        #compute time reversed transition matrix as matrix product
+        TM = self.__reconstructTM(t, clusterized=True)
+        R = y * TM.transpose() * x
+
+        #compute next step as q(n) = R * q(n-1)
+        self.__q_backward[:,t+1] = R * self.__q_backward[:,t]
+
+        #apply boundary conditions
+        self.__q_backward[self.__initial, t+1] = 1
+        self.__q_backward[self.__target,  t+1] = 0
+
+        return
+
+    def __compute_q_forward(self, Tf):
+        #computes the forward committor after the FKE has been solved
+
+        if self.__fke_soln is None:
+            err = "Forward equation must be solved before q+ can be computed"
+            raise RuntimeError(err)
+
+        #Solve BKE backwards in time
+        for t in range(Tf-1, -1, -1):
+
+            #get the transition matrix from forward evolution
+            TM = self.__reconstructTM(t, clusterized=True)
+
+            #update the soln to previous time
+            self.__q_forward[:, t] = TM * self.__q_forward[:, t+1] 
+
+            #set boundary conditions explicitly
+            self.__q_forward[self.__initial, t] = 0
+            self.__q_forward[self.__target,  t] = 1
+
+        return
+
+    def get_q_forward(self):
+
+        return self.__q_forward
+
+    def get_q_backward(self):
+
+        return self.__q_backward
+
+    def get_flux(self, t):
+        #compute expression for net flux at time t using computed committors
+
+        if self.__q_forward is None or self.__q_backward is None:
+            err = "Forward equation must be solved with compute_committor=True "
+            err+= "to compute the flux. "
+            raise RuntimeError(err)
+
+        #extract the 3 vectors required to compute flux and make diagonal mats
+        a = scipy.sparse.diags(self.__q_backward[:, t])
+        b = scipy.sparse.diags(self.__fke_soln[t,   :])
+        c = scipy.sparse.diags(self.__q_forward[:,t+1])
+
+        #get corresponding transition matrix
+        TM = self.__reconstructTM(t, clusterized=True)
+
+        #compute flux as matrix-products of diagonal matrices w/ transition mat
+        flux = a * b * TM * c
+
+        return flux
+
 
 
     def __make_frac_bins(self, frac, cutoffs):
