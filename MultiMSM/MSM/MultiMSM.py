@@ -9,6 +9,7 @@ import scipy
 from scipy import sparse
 
 from collections import defaultdict, Counter
+import heapq
 
 import time
 import random
@@ -1100,6 +1101,7 @@ class MultiMSMSolver:
         #init arrays for storing entropy production results
         self.__entropy_production = []
         self.__entropy_time = []
+        self.__entropy_contributions = []
 
         #init arrays for storing TPT results
         self.__q_forward = None
@@ -1213,6 +1215,19 @@ class MultiMSMSolver:
             raise RuntimeError(err)
         
         return self.__entropy_time, self.__entropy_production
+    
+    def get_entropy_contributions(self, n = None):
+
+        if len(self.__entropy_production) == 0:
+            err = "Entropy Production has not been computed. Call solve_FKE() with "
+            err+= "compute_entropy=True parameter before calling get_entropy_contributions(). "
+            raise RuntimeError(err)
+        
+        if n is None:
+            return self.__entropy_contributions
+        
+        return self.__entropy_contributions[n]
+        
 
     def solve_BKE(self, T, target_index_list):
         '''
@@ -1344,6 +1359,11 @@ class MultiMSMSolver:
         ep = 0
         pos_tol = 1e-8
 
+        #init a minheap to store top 10 contibutions to entropy, ignore repeats
+        k = 10
+        heap = []
+        repeated_indices = set()
+
         #get nonzero elements of the transition matrix to make calculation efficient
         rnz,cnz = TM.nonzero()
         for element in range(len(rnz)):
@@ -1355,8 +1375,24 @@ class MultiMSMSolver:
                 backward= distribution[j] * TM[j,i]
 
                 if forward > pos_tol and backward > pos_tol:
-                    ep += (forward-backward) * np.log(forward/backward)
+                    entropy = (forward-backward) * np.log(forward/backward)
+                    ep += entropy
 
+                    #keep track of largest contributions
+                    if (i,j) not in repeated_indices:
+                        if len(heap) < k:
+                            heapq.heappush(heap, (entropy, (i,j)))
+                            repeated_indices.add((j,i))
+                        elif entropy > heap[0][0]:
+                            popped_id = heapq.heappushpop(heap, (entropy, (i,j)))[1]
+                            repeated_indices.remove((popped_id[1], popped_id[0]))
+                            repeated_indices.add((j,i))
+
+        #append the heap saved max values to contribution array
+        largest_k = sorted(heap, key=lambda x: x[0], reverse=True)
+        self.__entropy_contributions.append(largest_k)
+
+        #return the entropy production
         return ep/2.0
     
 
