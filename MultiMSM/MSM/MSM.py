@@ -589,8 +589,9 @@ class MSM:
         re-normalize any row that no longer sums to 1. Stores this matrix in 
         self.__reduced_P. 
 
-        Also returns a modified macrostate map, with the absorbing states removed
-        and all indices shifted to match the new matrix. 
+        Returns a modified macrostate map, with the absorbing states removed
+        and all indices shifted to match the new matrix. Also returns a list 
+        of all indices of removed states with respect to original map. 
         '''
 
         #first, get the base transition matrix
@@ -620,7 +621,7 @@ class MSM:
         self.__reduced_P = scipy.sparse.csr_matrix(TM)
         self.__reduced_map = new_map
 
-        return new_map
+        return new_map, absorbing_indices
     
     def compute_equilibrium_distribution(self, num_states = None, remove_absorbing = 
                                          False, clusterized = False):

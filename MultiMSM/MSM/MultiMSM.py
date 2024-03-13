@@ -1292,8 +1292,8 @@ class MultiMSMSolver:
      
         return
     
-    def generateTrajectory(self, T, start_index = 0, p0 = None, output_type = "index",
-                           clusterized=True):
+    def generateTrajectory(self, T, start_index = 0, p0 = None, m0 = 1.0,
+                           output_type = "index", clusterized=True):
         '''
         Generates a trajectory of length T according to the MultiMSM dynamics. 
         Begins in starting state and draws a random new state from the row
@@ -1307,19 +1307,30 @@ class MultiMSMSolver:
         State objects, or cluster sizes. 
         '''
 
+        #init the offset if not starting at time 0
+        offset = 0
+
         #check if transitions matrices have been clusterized if requested
         if clusterized and not self.__multiMSM.is_clusterized():
             self.__multiMSM.clusterize_all()
 
         #check if a forward solve has been performed to the desired time. do it if not
-        self.solve_FKE(T, p0=p0)
+        fke_soln = self.solve_FKE(5*T, p0=p0)
+
+        #determine when the monomer fraction hits m0
+        if m0 < (1.0 - 1e-10):
+            mon_series = fke_soln[:,self.__monomer_index].copy()
+            closest_index = min(range(len(mon_series)), key=lambda i: abs(mon_series[i] - m0))
+            diff = mon_series[closest_index] - m0
+            print(closest_index, diff)
+            offset = closest_index
 
         #init storage for trajectory
         traj = [start_index]
         current_index = start_index
 
         #loop over all times to generate new states
-        for i in range(T):
+        for i in range(offset, T+offset):
 
             #grab the transition matrix at this time
             TM = self.__reconstructTM(i, clusterized)

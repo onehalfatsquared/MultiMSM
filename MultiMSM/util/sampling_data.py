@@ -6,7 +6,7 @@ size.
 Implements a save and load system so the analysis does not have to be repeated each 
 time one wants to visualize the sampled data. To do so, Data classes will be pickled 
 into the directory data/sampling/, which will be a subdirectory of the directory this
-file is located. 
+file is run from. 
 
 If the class is loaded, it compares all previously analyzed files to the files
 in the data folder. It will process any new ones and add them. Can also recompute,
